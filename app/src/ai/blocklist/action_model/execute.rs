@@ -9,6 +9,8 @@ pub(super) mod read_files;
 pub(super) mod read_mcp_resource;
 pub(super) mod read_skill;
 pub(super) mod request_file_edits;
+#[cfg(all(test, any(unix, windows)))]
+mod search_command_test_util;
 pub(super) mod shell_command;
 pub(super) mod suggest_new_conversation;
 pub(super) mod suggest_prompt;

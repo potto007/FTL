@@ -46,3 +46,20 @@ pub fn shell_escape_single_quotes(command: &str, shell_type: ShellType) -> Strin
         }
     }
 }
+
+/// 将完整的 shell 参数引用为数据，防止将其解释为 shell 语法。
+/// 不适用于有意包含运算符、管道或选项的命令片段。
+pub fn shell_quote_arg(value: &str, shell_type: ShellType) -> String {
+    let escaped = match shell_type {
+        // Fish 在单引号内仍解释反斜杠，必须先转义反斜杠再转义单引号。
+        ShellType::Fish => value.replace('\\', "\\\\").replace('\'', "\\'"),
+        ShellType::Bash | ShellType::Zsh | ShellType::PowerShell => {
+            shell_escape_single_quotes(value, shell_type)
+        }
+    };
+    format!("'{escaped}'")
+}
+
+#[cfg(test)]
+#[path = "shared_tests.rs"]
+mod tests;
