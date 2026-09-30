@@ -312,7 +312,7 @@ async fn cross_compile_remote_server(backend: &DevBuildBackend) -> Result<PathBu
     // 容易误以为卡死)。
     log::info!(
         "dev remote-server: 正在交叉编译,首次通常需数分钟 —— cargo 进度会打印到\
-         运行 Zap 的终端"
+         运行 FTL 的终端"
     );
 
     let status = async {
@@ -370,7 +370,7 @@ async fn cross_compile_remote_server(backend: &DevBuildBackend) -> Result<PathBu
     if !status.success() {
         let code = status.code().unwrap_or(-1);
         return Err(anyhow!(
-            "cargo cross-compilation failed (exit {code}); see the cargo output in the terminal running Zap"
+            "cargo cross-compilation failed (exit {code}); see the cargo output in the terminal running FTL"
         ));
     }
 

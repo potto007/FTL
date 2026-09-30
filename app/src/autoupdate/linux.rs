@@ -31,7 +31,7 @@ pub(super) async fn download_update_and_cleanup(
                 .await
         }
         UpdateMethod::PackageManager(package_manager) => {
-            log::info!("Detected that Zap was installed using {package_manager:?}");
+            log::info!("Detected that FTL was installed using {package_manager:?}");
             Ok(DownloadReady::NeedsAuthorization)
         }
     }
@@ -45,7 +45,7 @@ pub(super) fn apply_update() -> Result<ReadyForRelaunch> {
         UpdateMethod::Unknown => bail!("Cannot apply update for unknown update method!"),
         UpdateMethod::AppImage(_) => Ok(ReadyForRelaunch::Yes),
         UpdateMethod::PackageManager(package_manager) => bail!(
-            "Zap does not support package-manager autoupdate for {package_manager}; install the new release manually"
+            "FTL does not support package-manager autoupdate for {package_manager}; install the new release manually"
         ),
     }
 }
@@ -77,9 +77,9 @@ mod appimage {
         // openWarp:从 GitHub Release 缓存里取真实下载 URL,绕开空的 releases_base_url。
         // 官方 channel 仍然走 release_assets_directory_url。
         let url = if matches!(channel, warp_core::channel::Channel::Oss) {
-            // OSS Linux AppImage 默认资产名 "Zap-x86_64.AppImage"。
+            // OSS Linux AppImage 默认资产名 "FTL-x86_64.AppImage"。
             // 已知 release 资产名固定在 GitHub Actions 里。
-            let asset = "Zap-x86_64.AppImage";
+            let asset = "FTL-x86_64.AppImage";
             if let Some(release) = crate::autoupdate::github::cached_release() {
                 if let Some(found) = release.find_asset(asset) {
                     found.browser_download_url.clone()
@@ -165,7 +165,7 @@ mod appimage {
         if matches!(channel, warp_core::channel::Channel::Oss) {
             let temp_path = new_appimage.path().to_path_buf();
             if let Err(e) =
-                crate::autoupdate::verify_oss_asset_sha256(&temp_path, "Zap-x86_64.AppImage")
+                crate::autoupdate::verify_oss_asset_sha256(&temp_path, "FTL-x86_64.AppImage")
             {
                 // 临时文件会随 NamedTempFile drop 自动清理,这里只需返回错误。
                 return Err(e);
@@ -185,7 +185,7 @@ mod appimage {
             .as_file_mut()
             .set_permissions(appimage_path.metadata()?.permissions())?;
 
-        // Move new AppImage over the one that launched the current Zap instance.
+        // Move new AppImage over the one that launched the current FTL instance.
         let new_appimage_path = new_appimage.into_temp_path();
         let mv_status = command::r#async::Command::new("mv")
             .arg(new_appimage_path.as_os_str())
@@ -256,14 +256,14 @@ mod package_manager {
     }
 }
 
-/// Returns which method should be used to update Zap.
+/// Returns which method should be used to update FTL.
 #[derive(Debug)]
 pub(crate) enum UpdateMethod {
-    /// We don't know how to update Zap.
+    /// We don't know how to update FTL.
     Unknown,
-    /// Zap is running as an AppImage and should be updated in-place.
+    /// FTL is running as an AppImage and should be updated in-place.
     AppImage(PathBuf),
-    /// Zap can be updated using the given package manager.
+    /// FTL can be updated using the given package manager.
     PackageManager(PackageManager),
 }
 
@@ -324,7 +324,7 @@ impl PackageManager {
             Channel::Local => &["warp-terminal-local"],
             // OSS:bundle_deb/rpm/arch 全部用 `zap` 作 package name,但 AUR
             // 维护者可能选 `zap-bin` / `zap-git`,所以也试一下。
-            Channel::Oss => &["zap", "zap-bin", "zap-git"],
+            Channel::Oss => &["ftl", "ftl-bin", "ftl-git"],
         }
     }
 
@@ -419,7 +419,7 @@ impl PackageManager {
         Ok(Some(pm))
     }
 
-    /// 把"用户应该跑的升级命令"写到日志里。OSS 用户翻 ~/.local/share/dev.zap.Zap/
+    /// 把"用户应该跑的升级命令"写到日志里。OSS 用户翻 ~/.local/share/dev.ftl.FTL/
     /// 下面的日志能找到精确指令;UI 仍然走"前往 GitHub 下载"兜底,不区分到包管理器。
     fn log_upgrade_hint(&self) {
         let hint = match self {

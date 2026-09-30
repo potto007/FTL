@@ -3,7 +3,7 @@ import mdx from '@astrojs/mdx';
 import sitemap from '@astrojs/sitemap';
 
 export default defineConfig({
-  site: 'https://zap.dev',
+  site: process.env.FTL_SITE_URL || 'http://localhost:4321',
   integrations: [mdx(), sitemap()],
   trailingSlash: 'ignore',
   redirects: {

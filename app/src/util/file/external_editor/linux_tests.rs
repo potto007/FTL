@@ -173,7 +173,7 @@ fn test_remaining_substitutions() {
     Version=1.0
     Type=Application
     Exec=echo %c && echo %i && echo %k && echo %%
-    Name=Zap Test Application
+    Name=FTL Test Application
     Icon=/foo/bar/icon.png
     "#;
     with_files("test_remaining_substitutions", data, |desktop, content| {
@@ -190,7 +190,7 @@ fn test_remaining_substitutions() {
         // %% → "%"
         let cmd = result.unwrap();
         let args: Vec<_> = cmd.get_args().collect();
-        assert_eq!(args[0], "Zap Test Application");
+        assert_eq!(args[0], "FTL Test Application");
         assert_eq!(args[1], "&&");
         assert_eq!(args[2], "echo");
         assert_eq!(args[3], "--icon");

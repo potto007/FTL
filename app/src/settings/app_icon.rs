@@ -7,7 +7,7 @@ use warp_core::{
 
 /// The app icon to use (mac-only).
 ///
-/// IMPORTANT NOTE: If you add a new icon, you will need to update the logic in ZapDockTilePlugin.m
+/// IMPORTANT NOTE: If you add a new icon, you will need to update the logic in FTLDockTilePlugin.m
 /// to read the new icon and also add the icon to app/DockTilePlugin/Resources.
 #[derive(
     Default,
@@ -40,7 +40,7 @@ pub enum AppIcon {
     Classic3,
     #[schemars(description = "Comets")]
     Comets,
-    /// Cow icon, for Code on Zap launch.
+    /// Cow icon, for Code on FTL launch.
     #[schemars(description = "Cow")]
     Cow,
     #[schemars(description = "Glass Sky")]
@@ -64,7 +64,7 @@ pub enum AppIcon {
     #[schemars(description = "Sticker")]
     Sticker,
     /// Previous default icon with solid blue background.
-    #[schemars(description = "Zap 1")]
+    #[schemars(description = "FTL 1")]
     WarpOne,
 }
 
@@ -87,7 +87,7 @@ impl std::fmt::Display for AppIcon {
             AppIcon::Original => "Original",
             AppIcon::Starburst => "Starburst",
             AppIcon::Sticker => "Sticker",
-            AppIcon::WarpOne => "Zap 1",
+            AppIcon::WarpOne => "FTL 1",
         };
         write!(f, "{value}")
     }

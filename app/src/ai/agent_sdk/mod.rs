@@ -178,7 +178,7 @@ fn run_agent(
         }
         AgentCommand::Profile(sub) => profiles::run(ctx, global_options, sub),
         AgentCommand::List(_) => Err(anyhow::anyhow!(
-            "Agent skill listing is disabled in Zap"
+            "Agent skill listing is disabled in FTL"
         )),
     }
 }
@@ -579,7 +579,7 @@ fn launch_command(
     let auth_state = AuthStateProvider::handle(ctx).as_ref(ctx).get();
     if !auth_state.is_logged_in() {
         return Err(anyhow::anyhow!(
-            "No local user is available. Restart Zap and try again."
+            "No local user is available. Restart FTL and try again."
         ));
     }
 
@@ -606,7 +606,7 @@ fn report_fatal_error(err: anyhow::Error, ctx: &mut AppContext) {
         if let Ok(path) = log_file_path() {
             let _ = write!(
                 message,
-                "\n\nFor more information, check Zap logs at {}",
+                "\n\nFor more information, check FTL logs at {}",
                 path.display()
             );
         }

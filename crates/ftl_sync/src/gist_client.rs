@@ -9,8 +9,11 @@ use serde_json::json;
 use std::time::Duration;
 use thiserror::Error;
 
-const GIST_DESCRIPTION: &str = "ZAP_CONFIG";
-const GIST_FILENAME: &str = "zap_config.json";
+const GIST_DESCRIPTION: &str = "FTL_CONFIG";
+const GIST_FILENAME: &str = "ftl_config.json";
+// 旧同步资料保持可读；新建与后续更新使用 FTL 名称。
+const LEGACY_GIST_DESCRIPTION: &str = "ZAP_CONFIG";
+const LEGACY_GIST_FILENAME: &str = "zap_config.json";
 /// HTTP 整体请求超时（含 connect + read），避免网络挂起让 UI 永远卡在 Syncing
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -34,19 +37,43 @@ pub enum GistClientError {
 /// Gist 操作 trait，支持真实客户端和测试 mock
 pub trait GistOps: Send + Sync {
     /// 验证 Token 是否有效，返回用户名
-    fn validate_token(&self, platform: SyncPlatform, token: String) -> impl std::future::Future<Output = Result<String, GistClientError>> + Send;
+    fn validate_token(
+        &self,
+        platform: SyncPlatform,
+        token: String,
+    ) -> impl std::future::Future<Output = Result<String, GistClientError>> + Send;
 
     /// 查找 description 为 ZAP_CONFIG 的 Gist
-    fn find_gist(&self, platform: SyncPlatform, token: String) -> impl std::future::Future<Output = Result<Option<String>, GistClientError>> + Send;
+    fn find_gist(
+        &self,
+        platform: SyncPlatform,
+        token: String,
+    ) -> impl std::future::Future<Output = Result<Option<String>, GistClientError>> + Send;
 
     /// 创建新 Gist
-    fn create_gist(&self, platform: SyncPlatform, token: String, content: String) -> impl std::future::Future<Output = Result<String, GistClientError>> + Send;
+    fn create_gist(
+        &self,
+        platform: SyncPlatform,
+        token: String,
+        content: String,
+    ) -> impl std::future::Future<Output = Result<String, GistClientError>> + Send;
 
     /// 更新已有 Gist
-    fn update_gist(&self, platform: SyncPlatform, token: String, gist_id: String, content: String) -> impl std::future::Future<Output = Result<(), GistClientError>> + Send;
+    fn update_gist(
+        &self,
+        platform: SyncPlatform,
+        token: String,
+        gist_id: String,
+        content: String,
+    ) -> impl std::future::Future<Output = Result<(), GistClientError>> + Send;
 
     /// 获取 Gist 文件内容
-    fn get_gist_content(&self, platform: SyncPlatform, token: String, gist_id: String) -> impl std::future::Future<Output = Result<String, GistClientError>> + Send;
+    fn get_gist_content(
+        &self,
+        platform: SyncPlatform,
+        token: String,
+        gist_id: String,
+    ) -> impl std::future::Future<Output = Result<String, GistClientError>> + Send;
 }
 
 /// Gist API 客户端，支持 GitHub 和 Gitee
@@ -60,7 +87,7 @@ impl GistClient {
     /// 也不要静默回退到无 user-agent 的 Client::default() — GitHub 强制要求 UA。
     pub fn new() -> Self {
         let client = Client::builder()
-            .user_agent("Zap-Terminal")
+            .user_agent("FTL-Terminal")
             .timeout(REQUEST_TIMEOUT)
             .connect_timeout(CONNECT_TIMEOUT)
             .build()
@@ -105,7 +132,8 @@ impl GistClient {
         // /user(可能是 SSO 拦截页 / 代理伪造 200),不能误判为验证通过
         let login = user["login"].as_str().ok_or_else(|| GistClientError::Api {
             status: 200,
-            body: "The response is missing the login field; the token was not actually validated".to_string(),
+            body: "The response is missing the login field; the token was not actually validated"
+                .to_string(),
         })?;
         Ok(login.to_string())
     }
@@ -143,10 +171,12 @@ impl GistClient {
                 return Ok(None);
             }
 
-            if let Some(found) = gists
-                .iter()
-                .find(|g| g.description.as_deref() == Some(GIST_DESCRIPTION))
-            {
+            if let Some(found) = gists.iter().find(|g| {
+                matches!(
+                    g.description.as_deref(),
+                    Some(GIST_DESCRIPTION | LEGACY_GIST_DESCRIPTION)
+                )
+            }) {
                 return Ok(Some(found.id.clone()));
             }
         }
@@ -264,7 +294,10 @@ impl GistClient {
         }
 
         let detail: serde_json::Value = resp.json().await?;
-        let file_obj = &detail["files"][GIST_FILENAME];
+        let file_obj = detail["files"]
+            .get(GIST_FILENAME)
+            .or_else(|| detail["files"].get(LEGACY_GIST_FILENAME))
+            .ok_or(GistClientError::NotFound)?;
 
         if file_obj["truncated"].as_bool() == Some(true) {
             let raw_url = file_obj["raw_url"]
@@ -293,23 +326,47 @@ impl GistClient {
 }
 
 impl GistOps for GistClient {
-    async fn validate_token(&self, platform: SyncPlatform, token: String) -> Result<String, GistClientError> {
+    async fn validate_token(
+        &self,
+        platform: SyncPlatform,
+        token: String,
+    ) -> Result<String, GistClientError> {
         self.validate_token(platform, &token).await
     }
 
-    async fn find_gist(&self, platform: SyncPlatform, token: String) -> Result<Option<String>, GistClientError> {
+    async fn find_gist(
+        &self,
+        platform: SyncPlatform,
+        token: String,
+    ) -> Result<Option<String>, GistClientError> {
         self.find_gist(platform, &token).await
     }
 
-    async fn create_gist(&self, platform: SyncPlatform, token: String, content: String) -> Result<String, GistClientError> {
+    async fn create_gist(
+        &self,
+        platform: SyncPlatform,
+        token: String,
+        content: String,
+    ) -> Result<String, GistClientError> {
         self.create_gist(platform, &token, &content).await
     }
 
-    async fn update_gist(&self, platform: SyncPlatform, token: String, gist_id: String, content: String) -> Result<(), GistClientError> {
+    async fn update_gist(
+        &self,
+        platform: SyncPlatform,
+        token: String,
+        gist_id: String,
+        content: String,
+    ) -> Result<(), GistClientError> {
         self.update_gist(platform, &token, &gist_id, &content).await
     }
 
-    async fn get_gist_content(&self, platform: SyncPlatform, token: String, gist_id: String) -> Result<String, GistClientError> {
+    async fn get_gist_content(
+        &self,
+        platform: SyncPlatform,
+        token: String,
+        gist_id: String,
+    ) -> Result<String, GistClientError> {
         self.get_gist_content(platform, &token, &gist_id).await
     }
 }
@@ -338,15 +395,30 @@ mod tests {
         // validate_token / find_gist / create_gist / update_gist / get_gist_content 应当在 token 为空时立即返回 NoToken,不发起任何 HTTP 请求
         for platform in [SyncPlatform::GitHub, SyncPlatform::Gitee] {
             let r = client.validate_token(platform, "").await;
-            assert!(matches!(r, Err(GistClientError::NoToken)), "validate_token 空 token");
+            assert!(
+                matches!(r, Err(GistClientError::NoToken)),
+                "validate_token 空 token"
+            );
             let r = client.find_gist(platform, "").await;
-            assert!(matches!(r, Err(GistClientError::NoToken)), "find_gist 空 token");
+            assert!(
+                matches!(r, Err(GistClientError::NoToken)),
+                "find_gist 空 token"
+            );
             let r = client.create_gist(platform, "", "{}").await;
-            assert!(matches!(r, Err(GistClientError::NoToken)), "create_gist 空 token");
+            assert!(
+                matches!(r, Err(GistClientError::NoToken)),
+                "create_gist 空 token"
+            );
             let r = client.update_gist(platform, "", "x", "{}").await;
-            assert!(matches!(r, Err(GistClientError::NoToken)), "update_gist 空 token");
+            assert!(
+                matches!(r, Err(GistClientError::NoToken)),
+                "update_gist 空 token"
+            );
             let r = client.get_gist_content(platform, "", "x").await;
-            assert!(matches!(r, Err(GistClientError::NoToken)), "get_gist_content 空 token");
+            assert!(
+                matches!(r, Err(GistClientError::NoToken)),
+                "get_gist_content 空 token"
+            );
         }
     }
 }

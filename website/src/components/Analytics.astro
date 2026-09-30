@@ -1,11 +1,12 @@
 ---
-// OpenPanel 网站访问分析组件
-// 通过 @openpanel/astro 接入 self-hosted OpenPanel 实例
+// 仅在 FTL 站点维护者明确配置自己的分析服务时启用。
 import { OpenPanelComponent } from '@openpanel/astro';
+const apiUrl = import.meta.env.PUBLIC_FTL_ANALYTICS_URL;
+const clientId = import.meta.env.PUBLIC_FTL_ANALYTICS_CLIENT_ID;
 ---
-<OpenPanelComponent
-  apiUrl="https://openpanel-api.zerx.dev"
-  clientId="6f7a6170-ee22-4226-9e9b-1a6977b53f98"
+{apiUrl && clientId && <OpenPanelComponent
+  apiUrl={apiUrl}
+  clientId={clientId}
   trackScreenViews={true}
   trackOutgoingLinks={true}
-/>
+/>}

@@ -1077,14 +1077,14 @@ where
             // Received a Zap OSC used for in-band generators.
             WARP_IN_BAND_GENERATOR_OSC_MARKER => match params.get(1) {
                 Some(&WARP_IN_BAND_GENERATOR_START_BYTE) => {
-                    log::info!("Received a Zap OSC marker for starting in-band command output.");
+                    log::info!("Received a FTL OSC marker for starting in-band command output.");
                     self.handler.start_in_band_command_output();
                 }
                 Some(&WARP_IN_BAND_GENERATOR_END_BYTE) => {
                     self.handler.end_in_band_command_output(true);
                 }
                 _ => {
-                    log::warn!("Received a Zap OSC marker missing required param.");
+                    log::warn!("Received a FTL OSC marker missing required param.");
                 }
             },
 
@@ -1106,12 +1106,12 @@ where
                             .get(2)
                             .map(|osc_data| String::from_utf8_lossy(osc_data))
                         else {
-                            log::error!("Zap OSC marker did not contain payload");
+                            log::error!("FTL OSC marker did not contain payload");
                             return;
                         };
                         safe_debug!(
-                            safe: ("Received Zap OSC string for shell hook"),
-                            full: ("Received Zap OSC string for shell hook with JSON payload: {:?}", data_str)
+                            safe: ("Received FTL OSC string for shell hook"),
+                            full: ("Received FTL OSC string for shell hook with JSON payload: {:?}", data_str)
                         );
                         let decoded_data = hex::decode(&*data_str);
                         self.handle_decoded_data(decoded_data);
@@ -1122,12 +1122,12 @@ where
                             .get(2)
                             .map(|osc_data| String::from_utf8_lossy(osc_data))
                         else {
-                            log::error!("Zap OSC marker did not contain payload");
+                            log::error!("FTL OSC marker did not contain payload");
                             return;
                         };
                         safe_debug!(
-                            safe: ("Received Zap OSC string for shell hook"),
-                            full: ("Received Zap OSC string for shell hook with JSON payload: {:?}", data_str)
+                            safe: ("Received FTL OSC string for shell hook"),
+                            full: ("Received FTL OSC string for shell hook with JSON payload: {:?}", data_str)
                         );
                         let hook = serde_json::from_str::<DProtoHook>(&data_str);
                         self.handle_unencoded_hook(hook)
@@ -1140,7 +1140,7 @@ where
             }
 
             WARP_RESET_GRID_OSC_MARKER => {
-                log::debug!("Received Zap OSC string for reset grid");
+                log::debug!("Received FTL OSC string for reset grid");
                 self.handler.on_reset_grid();
             }
 
@@ -1152,7 +1152,7 @@ where
                         .map(|osc_data| String::from_utf8_lossy(osc_data))
                         .and_then(|format| CompletionsShellData::from_format_type(&format))
                     else {
-                        log::warn!("Zap start completions OSC marker contained invalid format.");
+                        log::warn!("FTL start completions OSC marker contained invalid format.");
                         return;
                     };
                     self.handler.start_completions_output(format);
@@ -1167,7 +1167,7 @@ where
                         .map(|osc_data| String::from_utf8_lossy(osc_data))
                     else {
                         log::warn!(
-                            "Zap completions match result OSC marker did not contain payload"
+                            "FTL completions match result OSC marker did not contain payload"
                         );
                         return;
                     };
@@ -1191,7 +1191,7 @@ where
                         .map(|osc_data| String::from_utf8_lossy(osc_data))
                     else {
                         log::warn!(
-                            "Zap completions match metadata OSC marker did not contain payload"
+                            "FTL completions match metadata OSC marker did not contain payload"
                         );
                         return;
                     };
@@ -1206,7 +1206,7 @@ where
                             );
                         }
                         _ => {
-                            log::warn!("Invalid Zap OSC marker parameter for completions match metadata: {parameter}");
+                            log::warn!("Invalid FTL OSC marker parameter for completions match metadata: {parameter}");
                         }
                     }
                 }
@@ -1214,7 +1214,7 @@ where
                     self.handler.send_completions_prompt();
                 }
                 _ => {
-                    log::warn!("Received a Zap OSC completions marker missing required param.");
+                    log::warn!("Received a FTL OSC completions marker missing required param.");
                 }
             },
 

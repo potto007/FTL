@@ -5151,7 +5151,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "zap_sftp"
+name = "ftl_sftp"
 version = "0.1.0"
 dependencies = [
  "openssl-sys",
@@ -5162,7 +5162,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "zap_sync"
+name = "ftl_sync"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
@@ -14796,8 +14796,8 @@ dependencies = [
  "float-cmp",
  "fluent",
  "freedesktop-desktop-entry",
- "zap_sftp",
- "zap_sync",
+ "ftl_sftp",
+ "ftl_sync",
  "futures",
  "futures-lite 1.13.0",
  "futures-timer",
@@ -15344,7 +15344,7 @@ dependencies = [
  "diesel",
  "diesel_migrations",
  "dirs 6.0.0",
- "zap_sync",
+ "ftl_sync",
  "futures-lite 1.13.0",
  "instant",
  "keyring",

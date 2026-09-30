@@ -1,9 +1,9 @@
 pkgname=@@PACKAGE_NAME@@
 pkgver=@@PKGVER@@
 pkgrel=@@RELEASE@@
-pkgdesc="Zap, a community fork of the Rust-based Warp terminal"
+pkgdesc="FTL, a community fork of the Rust-based Warp terminal"
 arch=('@@ARCH@@')
-url="https://github.com/zerx-lab/warp"
+url="https://github.com/potto007/FTL"
 license=('custom')
 depends=(
 	'curl'

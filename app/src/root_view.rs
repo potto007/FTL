@@ -2270,7 +2270,7 @@ impl RootView {
                             self.web_handoff(ctx);
                         } else {
                             // Zap 已移除 log_out UI 入口,native 不再强制登出。
-                            log::warn!("User account disabled; ignoring (Zap 已移除 log_out)");
+                            log::warn!("User account disabled; ignoring (FTL 已移除 log_out)");
                         }
                     }
                 }

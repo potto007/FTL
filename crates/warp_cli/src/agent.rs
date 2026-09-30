@@ -120,7 +120,7 @@ impl HiddenComputerUseArgs {
 /// The execution harness for an agent run.
 #[derive(Debug, Copy, Clone, ValueEnum, Eq, PartialEq, Default)]
 pub enum Harness {
-    /// Use Zap's built-in MAA infrastructure (default).
+    /// Use FTL's built-in MAA infrastructure (default).
     #[default]
     #[value(name = "oz")]
     Oz,
@@ -237,7 +237,7 @@ pub struct RunAgentArgs {
     /// Working directory for the agent
     #[arg(short = 'C', long = "cwd")]
     pub cwd: Option<PathBuf>,
-    /// Display agent progress in the Zap interface.
+    /// Display agent progress in the FTL interface.
     #[arg(long = "gui", hide = true)]
     pub gui: bool,
     #[command(flatten)]
@@ -285,7 +285,7 @@ pub struct RunAgentArgs {
 
     /// Execution harness for the agent run.
     ///
-    /// "oz" (default) uses Zap's built-in agent infrastructure.
+    /// "oz" (default) uses FTL's built-in agent infrastructure.
     /// "claude" delegates to the `claude` CLI.
     #[arg(long = "harness", value_name = "HARNESS", default_value_t = Harness::Oz, hide = true)]
     pub harness: Harness,

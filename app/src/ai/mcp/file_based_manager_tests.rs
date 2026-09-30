@@ -284,7 +284,7 @@ fn test_global_warp_server_from_managed_home_root_always_spawns() {
             assert_eq!(
                 e.spawned_uuids.len(),
                 1,
-                "Managed Zap MCP config should auto-spawn regardless of toggle"
+                "Managed FTL MCP config should auto-spawn regardless of toggle"
             );
         });
 
@@ -295,7 +295,7 @@ fn test_global_warp_server_from_managed_home_root_always_spawns() {
         events.update(&mut app, |e, _| {
             assert!(
                 e.despawned_uuids.is_empty(),
-                "Managed Zap MCP config should never be despawned by toggle changes, got: {:?}",
+                "Managed FTL MCP config should never be despawned by toggle changes, got: {:?}",
                 e.despawned_uuids
             );
         });
@@ -323,7 +323,7 @@ fn test_global_non_warp_server_respects_toggle() {
         events.update(&mut app, |e, _| {
             assert!(
                 e.spawned_uuids.is_empty(),
-                "Global non-Zap server must not auto-spawn while toggle is off, got: {:?}",
+                "Global non-FTL server must not auto-spawn while toggle is off, got: {:?}",
                 e.spawned_uuids
             );
         });
@@ -340,7 +340,7 @@ fn test_global_non_warp_server_respects_toggle() {
             assert_eq!(
                 e.spawned_uuids,
                 vec![installation_uuid],
-                "Global non-Zap server should spawn when toggle flips on"
+                "Global non-FTL server should spawn when toggle flips on"
             );
         });
 
@@ -350,7 +350,7 @@ fn test_global_non_warp_server_respects_toggle() {
             assert_eq!(
                 e.despawned_uuids,
                 vec![installation_uuid],
-                "Global non-Zap server should despawn when toggle flips off"
+                "Global non-FTL server should despawn when toggle flips off"
             );
         });
     });

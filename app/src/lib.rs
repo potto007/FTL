@@ -73,9 +73,9 @@ mod search_bar;
 mod server;
 mod server_time;
 mod session_management;
+mod sftp_manager;
 mod shell_indicator;
 mod skill_manager;
-mod sftp_manager;
 mod ssh_manager;
 mod suggestions;
 mod system;
@@ -2661,11 +2661,13 @@ pub fn enabled_features() -> HashSet<FeatureFlag> {
     ];
     flags.extend(extra_flags.iter().copied());
 
-    // 不稳定功能开关:统一通过 `ZAP_UNSTABLE_FEATURES` 环境变量在 release 构建里
+    // 不稳定功能开关:统一通过 `FTL_UNSTABLE_FEATURES` 环境变量（兼容旧 ZAP 名称）在 release 构建里
     // 显式启用尚未正式发布的功能。值为逗号分隔的不稳定功能名(snake_case),
     // 或 `all` / `*` 表示一次性全开;dev 构建已经在 debug_assertions 路径上自动
     // 启用所有当前不稳定功能,因此此处主要服务于 release 用户。
-    if let Ok(raw) = std::env::var("ZAP_UNSTABLE_FEATURES") {
+    if let Ok(raw) =
+        std::env::var("FTL_UNSTABLE_FEATURES").or_else(|_| std::env::var("ZAP_UNSTABLE_FEATURES"))
+    {
         let normalized = raw.trim().to_ascii_lowercase();
         let enable_all = matches!(normalized.as_str(), "all" | "*");
         let requested: HashSet<&str> = normalized
@@ -2688,7 +2690,7 @@ pub fn enabled_features() -> HashSet<FeatureFlag> {
     flags
 }
 
-/// `ZAP_UNSTABLE_FEATURES` 接受的不稳定功能名 -> FeatureFlag 映射。
+/// `FTL_UNSTABLE_FEATURES` 接受的不稳定功能名 -> FeatureFlag 映射。
 /// 这里登记的功能在 release 构建下默认隐藏,设置对应 token 后才会出现;
 /// dev 构建走 debug_assertions 分支默认启用,无需该变量。
 const UNSTABLE_FEATURES: &[(&str, FeatureFlag)] = &[

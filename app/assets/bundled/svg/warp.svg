@@ -1,3 +1,1 @@
-<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-<path fill-rule="evenodd" clip-rule="evenodd" d="M4 5C4 3.895 4.895 3 6 3H18C19.105 3 20 3.895 20 5V19C20 20.105 19.105 21 18 21H6C4.895 21 4 20.105 4 19V5ZM6 8H18V6H6V8ZM13 10L9 16H11L10.5 19L15 13H12L13 10Z" fill="#FF0000"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 512 512" role="img" aria-label="FTL"><title>FTL</title><path d="M88 152H190V192H130V228H181V268H130V360H88Z" fill="#ff0000"/><path d="M202 152H320V192H282V360H240V192H202Z" fill="#ff0000"/><path d="M336 152H378V320H438V360H336Z" fill="#ff0000"/></svg>

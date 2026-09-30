@@ -82,7 +82,7 @@ mod nav;
 mod network_page;
 pub mod pane_manager;
 // Zap Wave 3-1:`platform` / `platform_page` 随 `OzCloudAPIKeys` settings 入口 +
-// Zap Inc 云端 API key 管理 UI 一同物理删。
+// FTL Inc 云端 API key 管理 UI 一同物理删。
 // Zap Wave 6-8:`referrals_page` / `show_blocks_view` 随 `ReferralsClient` /
 // `BlockClient` trait 物理删 —— 两个页面全部 stub Err / 空列表,本地无价值。
 mod settings_file_footer;
@@ -145,7 +145,7 @@ pub(super) fn editor_text_colors(appearance: &Appearance) -> TextColors {
 pub enum SettingsViewEvent {
     Pane(PaneEvent),
     StartResize,
-    // Zap 去中心化分支:`CheckForUpdate` / `ZapDrive` 变体随 Account
+    // FTL 去中心化分支:`CheckForUpdate` / `ZapDrive` 变体随 Account
     // 主设置页唯一发射者(`MainSettingsPageView`)一同物理删。
     ShowToast {
         message: String,
@@ -175,7 +175,7 @@ pub enum SettingsSection {
     /// External callers should navigate to a specific subpage (e.g. `WarpAgent`) instead.
     AI,
     // ── Agents umbrella subpages ──
-    // 去中心化分支:Settings 默认页改为 Zap Agent(本地 AI 设置)。
+    // 去中心化分支:Settings 默认页改为 FTL Agent(本地 AI 设置)。
     #[default]
     WarpAgent,
     AgentProfiles,
@@ -295,9 +295,9 @@ impl FromStr for SettingsSection {
             "Features" => Ok(Self::Features),
             "Keyboard shortcuts" => Ok(Self::Keybindings),
             "Warpify" => Ok(Self::Warpify),
-            "ZapDrive" | "Zap Drive" => Ok(Self::ZapDrive),
+            "ZapDrive" | "Zap Drive" | "FTL Drive" => Ok(Self::ZapDrive),
             // This page was called "Oz" at one point, keep for backward compatibility.
-            "Oz" | "Zap Agent" => Ok(Self::WarpAgent),
+            "Oz" | "FTL Agent" => Ok(Self::WarpAgent),
             "Profiles" | "AgentProfiles" => Ok(Self::AgentProfiles),
             "MCP servers" | "AgentMCPServers" => Ok(Self::AgentMCPServers),
             "Providers" | "AgentProviders" => Ok(Self::AgentProviders),
@@ -1029,7 +1029,7 @@ impl SettingsView {
         // Zap Wave 6-8:Referrals 设置页随 `ReferralsPageView` / `ReferralsClient`
         // 物理删,handle / 事件订阅一同移除。
 
-        // Zap Drive page
+        // FTL Drive page
         let warp_drive_page_handle =
             ctx.add_typed_action_view(warp_drive_page::WarpDriveSettingsPageView::new);
 

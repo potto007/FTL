@@ -1,10 +1,12 @@
+> FTL now implements an initial local service, bounded agent teams, native Windows broker and multimodal MCP results. See [implemented capabilities and limits](ftl-agent-capabilities.md). Remaining roadmap items below are future work.
+
 # ロードマップ
 
-Zap の Agent 機能は、Warp クライアントから独立した、独立したオープンソースサービスとして実装されます。ターミナルはあくまでもその一つの担い手にすぎません —— TUI、IDE プラグイン、クラウド worker のいずれも同じエンジンを駆動できます。
+FTL の Agent 機能は、Warp クライアントから独立した、独立したオープンソースサービスとして実装されます。ターミナルはあくまでもその一つの担い手にすぎません —— TUI、IDE プラグイン、クラウド worker のいずれも同じエンジンを駆動できます。
 
 ## Phase 1 — Agent Harness Core の自作
 
-- 独立した設計とゼロからの実装によるオープンソース Agent サービス —— Agent ループ、ツールランタイム、セッション/履歴状態、プロンプトテンプレート、プロバイダールーティングを含み、Warp 既存クライアントのコードには依存しません。Zap はその最初の公式担い手となります。
+- 独立した設計とゼロからの実装によるオープンソース Agent サービス —— Agent ループ、ツールランタイム、セッション/履歴状態、プロンプトテンプレート、プロバイダールーティングを含み、Warp 既存クライアントのコードには依存しません。FTL はその最初の公式担い手となります。
 - 安定した IPC / JSON-RPC プロトコルを定義:プロンプト、ストリーミングトークン、ツール呼び出し、ファイル diff、状態、添付ファイル。
 - Harness は再利用可能なオープンソースサービスとして提供 —— headless デーモン、独立 TUI、IDE プラグイン、その他ターミナルから接続可能。
 - デフォルトでローカル実行のみ;認証情報、履歴、Skills、MCP サーバー設定はすべてローカルに保持。
@@ -25,7 +27,7 @@ Zap の Agent 機能は、Warp クライアントから独立した、独立し�
 
 ## Phase 3 — マルチ担い手協調
 
-- Zap ターミナル、独立 TUI、IDE プラグイン、Web UI で同一のアイデンティティ / アカウントを共有。
+- FTL ターミナル、独立 TUI、IDE プラグイン、Web UI で同一のアイデンティティ / アカウントを共有。
 - セッション引き継ぎ:Web でタスクを開始してターミナルで継続、あるいはターミナルセッションをデスクトップ側のレビューに引き渡し。
 - バックグラウンド Agent とマルチ Agent チーム:Lead Agent がタスクを分解し、並列のサブ Agent に分配。
 - Routines:スケジュール / API 呼び出し / リポジトリイベント / CI / Issue tracker イベントによるタスクトリガー。

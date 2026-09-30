@@ -1,9 +1,9 @@
-//! zap_sftp::error 模块单元测试
+//! ftl_sftp::error 模块单元测试
 //!
 //! author: logic
 //! date: 2026/05/26
 
-use zap_sftp::error::{SftpChannelError, SftpError};
+use ftl_sftp::error::{SftpChannelError, SftpError};
 
 // ============================================================
 // SftpError Display 测试
