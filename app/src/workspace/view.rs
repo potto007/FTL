@@ -18548,6 +18548,9 @@ impl Workspace {
             crate::settings::ThinkingDisplayMode::AlwaysShow => {
                 context.set.insert(flags::THINKING_DISPLAY_ALWAYS_SHOW);
             }
+            crate::settings::ThinkingDisplayMode::StartCollapsed => {
+                context.set.insert(flags::THINKING_DISPLAY_START_COLLAPSED);
+            }
             crate::settings::ThinkingDisplayMode::NeverShow => {
                 context.set.insert(flags::THINKING_DISPLAY_NEVER_SHOW);
             }

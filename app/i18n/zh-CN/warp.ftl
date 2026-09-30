@@ -2226,6 +2226,7 @@ toggle-suffix-memory-stats = 内存统计
 # Set agent thinking display
 agent-thinking-display-show-collapse = 设置 Agent 思考展示：展示并折叠
 agent-thinking-display-always-show = 设置 Agent 思考展示：始终展示
+agent-thinking-display-start-collapsed = 设置 Agent 思考展示：初始折叠
 agent-thinking-display-never-show = 设置 Agent 思考展示：从不展示
 
 # --- ANCHOR-SUB-EXTERNAL-EDITOR (settings-external-editor) ---

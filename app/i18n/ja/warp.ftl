@@ -2203,6 +2203,7 @@ toggle-suffix-memory-stats = メモリ統計
 # Set agent thinking display
 agent-thinking-display-show-collapse = エージェント思考表示を設定: 表示して折りたたむ
 agent-thinking-display-always-show = エージェント思考表示を設定: 常に表示
+agent-thinking-display-start-collapsed = エージェント思考表示を設定: 最初は折りたたむ
 agent-thinking-display-never-show = エージェント思考表示を設定: 表示しない
 
 # --- ANCHOR-SUB-EXTERNAL-EDITOR (settings-external-editor) ---

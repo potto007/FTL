@@ -260,6 +260,7 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
                         flags::THINKING_DISPLAY_SHOW_AND_COLLAPSE
                     }
                     ThinkingDisplayMode::AlwaysShow => flags::THINKING_DISPLAY_ALWAYS_SHOW,
+                    ThinkingDisplayMode::StartCollapsed => flags::THINKING_DISPLAY_START_COLLAPSED,
                     ThinkingDisplayMode::NeverShow => flags::THINKING_DISPLAY_NEVER_SHOW,
                 };
                 FixedBinding::empty(

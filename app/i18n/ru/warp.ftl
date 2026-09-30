@@ -2304,6 +2304,7 @@ toggle-suffix-memory-stats = статистику памяти
 # Set agent thinking display
 agent-thinking-display-show-collapse = Настройка отображения размышлений агента: показывать и сворачивать
 agent-thinking-display-always-show = Настройка отображения размышлений агента: показывать всегда
+agent-thinking-display-start-collapsed = Настройка отображения размышлений агента: сначала свернуто
 agent-thinking-display-never-show = Настройка отображения размышлений агента: никогда не показывать
 
 # --- ANCHOR-SUB-EXTERNAL-EDITOR (settings-external-editor) ---

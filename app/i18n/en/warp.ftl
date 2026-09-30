@@ -2300,6 +2300,7 @@ toggle-suffix-memory-stats = memory statistics
 # Set agent thinking display
 agent-thinking-display-show-collapse = Set agent thinking display: show & collapse
 agent-thinking-display-always-show = Set agent thinking display: always show
+agent-thinking-display-start-collapsed = Set agent thinking display: start collapsed
 agent-thinking-display-never-show = Set agent thinking display: never show
 
 # --- ANCHOR-SUB-EXTERNAL-EDITOR (settings-external-editor) ---

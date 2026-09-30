@@ -352,6 +352,8 @@ pub enum ThinkingDisplayMode {
     ShowAndCollapse,
     /// Always keep reasoning blocks expanded, even after streaming finishes.
     AlwaysShow,
+    /// 初始折叠思考内容，保留标题供用户随时手动展开。
+    StartCollapsed,
     /// Never show reasoning blocks.
     NeverShow,
 }
@@ -372,6 +374,7 @@ impl ThinkingDisplayMode {
         match self {
             ThinkingDisplayMode::ShowAndCollapse => "Show & collapse",
             ThinkingDisplayMode::AlwaysShow => "Always show",
+            ThinkingDisplayMode::StartCollapsed => "Start collapsed",
             ThinkingDisplayMode::NeverShow => "Never show",
         }
     }
@@ -382,6 +385,9 @@ impl ThinkingDisplayMode {
                 crate::t!("agent-thinking-display-show-collapse")
             }
             ThinkingDisplayMode::AlwaysShow => crate::t!("agent-thinking-display-always-show"),
+            ThinkingDisplayMode::StartCollapsed => {
+                crate::t!("agent-thinking-display-start-collapsed")
+            }
             ThinkingDisplayMode::NeverShow => crate::t!("agent-thinking-display-never-show"),
         }
     }
