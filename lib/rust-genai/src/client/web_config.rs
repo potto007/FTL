@@ -29,6 +29,8 @@ pub struct WebConfig {
 	/// also set on this config, the explicit proxy still takes effect.
 	/// Default: false.
 	pub no_proxy: bool,
+	/// 禁止重定向，防止已授权的视觉数据转发到其他目标。
+	pub no_redirects: bool,
 	/// Enable gzip response decompression. **Default: false** (Zap fork
 	/// — upstream genai default is true). See struct-level docs for rationale.
 	pub gzip: bool,
@@ -45,6 +47,7 @@ impl Default for WebConfig {
 			default_headers: None,
 			proxy: None,
 			no_proxy: false,
+			no_redirects: false,
 			// Zap: gzip off by default — see struct-level docs above.
 			gzip: false,
 			tcp_nodelay: true,
@@ -135,6 +138,9 @@ impl WebConfig {
 		}
 		if let Some(ref headers) = self.default_headers {
 			builder = builder.default_headers(headers.clone());
+		}
+		if self.no_redirects {
+			builder = builder.redirect(reqwest::redirect::Policy::none());
 		}
 		if self.no_proxy {
 			builder = builder.no_proxy();

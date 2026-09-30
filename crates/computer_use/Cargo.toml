@@ -11,6 +11,9 @@ name = "use_computer"
 path = "src/bin/use_computer.rs"
 
 [features]
+default = ["gui-timer"]
+gui-timer = ["dep:warpui"]
+headless = []
 test-util = []
 
 [dependencies]
@@ -21,7 +24,7 @@ log.workspace = true
 pathfinder_geometry.workspace = true
 serde.workspace = true
 serde_with.workspace = true
-tokio = { workspace = true, features = ["rt", "macros"] }
+tokio = { workspace = true, features = ["rt", "macros", "time"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 command.workspace = true
@@ -47,7 +50,7 @@ zbus.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
 image.workspace = true
-warpui.workspace = true
+warpui = { workspace = true, optional = true }
 windows = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
@@ -58,7 +61,7 @@ windows = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
-computer_use = { path = ".", features = ["test-util"] }
+computer_use = { path = ".", default-features = false, features = ["test-util"] }
 
 [build-dependencies]
 cfg_aliases = "0.2.1"

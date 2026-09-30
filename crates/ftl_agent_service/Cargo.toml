@@ -1,0 +1,24 @@
+[package]
+name = "ftl_agent_service"
+version = "0.1.0"
+edition = "2024"
+publish.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "ftl-agent-service"
+path = "src/main.rs"
+
+[dependencies]
+ftl_agent_core = { path = "../ftl_agent_core" }
+anyhow.workspace = true
+async-trait.workspace = true
+clap.workspace = true
+# 独立进程没有应用的全局加密初始化，显式启用 reqwest 自带的提供者。
+reqwest = { workspace = true, features = ["json", "rustls-tls-native-roots"] }
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
+url.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+ftl_desktop_broker = { path = "../ftl_desktop_broker" }

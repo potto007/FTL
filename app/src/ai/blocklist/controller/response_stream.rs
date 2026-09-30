@@ -61,6 +61,7 @@ struct ByopDispatch {
     /// ユーザー設定 (image/pdf/audio 三態 Override) を反映済みの attachment caps。
     /// `resolve_for_model` で計算。UI 表示と runtime 動作が同じ caps を参照する。
     attachment_caps: crate::ai::agent_providers::attachment_caps::AttachmentCaps,
+    tool_images_allowed: bool,
 }
 
 /// 标题生成专用的 BYOP 配置(可能与主 base 模型同 provider 也可能不同)。
@@ -143,6 +144,7 @@ fn byop_dispatch_info(
             );
             crate::ai::agent_providers::attachment_caps::caps_for(provider.api_type, &model_id)
         });
+    let tool_images_allowed = provider.allows_tool_images(&model_id);
     Some(ByopDispatch {
         base_url: provider.base_url,
         api_key,
@@ -158,6 +160,7 @@ fn byop_dispatch_info(
         lrc_should_spawn_subagent: params.lrc_should_spawn_subagent,
         context_window,
         attachment_caps,
+        tool_images_allowed,
     })
 }
 
@@ -292,6 +295,7 @@ impl ResponseStream {
                             context_window: byop.context_window,
                             cancellation_rx,
                             attachment_caps: byop.attachment_caps,
+                            tool_images_allowed: byop.tool_images_allowed,
                         },
                     )
                     .await
@@ -400,6 +404,7 @@ impl ResponseStream {
                             context_window: byop.context_window,
                             cancellation_rx,
                             attachment_caps: byop.attachment_caps,
+                            tool_images_allowed: byop.tool_images_allowed,
                         },
                     )
                     .await
@@ -649,10 +654,10 @@ impl Entity for ResponseStream {
 async fn byop_required_response_stream(
     cancellation_rx: oneshot::Receiver<()>,
 ) -> Result<api::ResponseStream, ConvertToAPITypeError> {
-    log::debug!("No BYOP provider selected for Zap agent request");
+    log::debug!("No BYOP provider selected for FTL agent request");
     let error_stream = futures::stream::once(async {
         Err(Arc::new(AIApiError::Other(anyhow!(
-            "Zap requires a configured BYOP provider in Settings"
+            "FTL requires a configured BYOP provider in Settings"
         ))))
     })
     .take_until(cancellation_rx);

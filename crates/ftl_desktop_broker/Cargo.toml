@@ -1,0 +1,22 @@
+[package]
+name = "ftl_desktop_broker"
+version = "0.1.0"
+edition = "2024"
+authors.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+base64.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+url.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+computer_use = { path = "../computer_use", default-features = false, features = ["headless"] }
+futures.workspace = true
+windows = { workspace = true, features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_UI_HiDpi", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse"] }
+
+[dev-dependencies]
+async-trait.workspace = true
+futures.workspace = true

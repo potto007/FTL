@@ -24,6 +24,9 @@
 //! 的 MCP content,转成 JSON 给上游模型。
 
 use anyhow::{anyhow, Result};
+use base64::Engine;
+
+use crate::ai::agent_providers::user_context::UserBinary;
 use prost_types::value::Kind as ProstKind;
 use serde_json::{json, Map, Value};
 use warp_multi_agent_api as api;
@@ -322,8 +325,15 @@ pub fn serialize_result(result: &api::message::tool_call_result::Result) -> Opti
         let value = match &r.result {
             Some(McpR::Success(s)) => json!({
                 "status": "ok",
-                // s.content 是 Vec<rmcp Content> 类型,此处简化为 debug 字符串。
-                "content": format!("{:?}", s),
+                "content": s.results.iter().map(|part| match &part.result {
+                    Some(api::call_mcp_tool_result::success::result::Result::Text(text)) =>
+                        json!({"type": "text", "text": text.text}),
+                    Some(api::call_mcp_tool_result::success::result::Result::Image(image)) =>
+                        image_metadata(&image.data, &image.mime_type),
+                    Some(api::call_mcp_tool_result::success::result::Result::Resource(resource)) =>
+                        resource_metadata(resource),
+                    None => json!({"type": "empty"}),
+                }).collect::<Vec<_>>(),
             }),
             Some(McpR::Error(e)) => json!({ "status": "error", "message": e.message }),
             None => json!({ "status": "cancelled" }),
@@ -334,8 +344,7 @@ pub fn serialize_result(result: &api::message::tool_call_result::Result) -> Opti
         let value = match &r.result {
             Some(ReadR::Success(s)) => json!({
                 "status": "ok",
-                // contents 是 Vec<rmcp ResourceContents>,debug 序列化保留所有信息
-                "contents": format!("{:?}", s.contents),
+                "contents": s.contents.iter().map(resource_metadata).collect::<Vec<_>>(),
             }),
             Some(ReadR::Error(e)) => json!({ "status": "error", "message": e.message }),
             None => json!({ "status": "cancelled" }),
@@ -343,6 +352,96 @@ pub fn serialize_result(result: &api::message::tool_call_result::Result) -> Opti
         return Some(value);
     }
     None
+}
+
+const MAX_IMAGE_BASE64_BYTES: usize = 8 * 1024 * 1024;
+const MAX_IMAGES_PER_RESULT: usize = 4;
+
+fn image_metadata(data: &[u8], mime_type: &str) -> Value {
+    json!({"type": "image", "mime_type": mime_type, "encoded_bytes": data.len(),
+        "delivery": "separate_visual_observation_if_supported"})
+}
+
+fn resource_metadata(resource: &api::McpResourceContent) -> Value {
+    use api::mcp_resource_content::ContentType;
+    match &resource.content_type {
+        Some(ContentType::Text(text)) => json!({"type": "resource", "uri": resource.uri,
+            "mime_type": text.mime_type, "text": text.content}),
+        Some(ContentType::Binary(binary)) => json!({"type": "resource", "uri": resource.uri,
+            "binary": image_metadata(&binary.data, &binary.mime_type)}),
+        None => json!({"type": "resource", "uri": resource.uri}),
+    }
+}
+
+// 现有 protobuf 的 MCP 图片字段存储 base64 文本字节，不能再次编码。
+fn validated_image(data: &[u8], mime_type: &str) -> Option<UserBinary> {
+    let format = match mime_type {
+        "image/png" => image::ImageFormat::Png,
+        "image/jpeg" => image::ImageFormat::Jpeg,
+        "image/webp" => image::ImageFormat::WebP,
+        _ => return None,
+    };
+    if data.is_empty() || data.len() > MAX_IMAGE_BASE64_BYTES {
+        return None;
+    }
+    let encoded = std::str::from_utf8(data).ok()?;
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .ok()?;
+    let (width, height) = image::ImageReader::with_format(std::io::Cursor::new(decoded), format)
+        .into_dimensions()
+        .ok()?;
+    if width == 0 || height == 0 || u64::from(width) * u64::from(height) > 40_000_000 {
+        return None;
+    }
+    Some(UserBinary {
+        name: "tool observation".into(),
+        content_type: mime_type.into(),
+        data: encoded.into(),
+    })
+}
+
+pub fn result_images(result: &api::message::tool_call_result::Result) -> Vec<UserBinary> {
+    use api::call_mcp_tool_result::{success::result::Result as Part, Result as McpResult};
+    use api::mcp_resource_content::ContentType;
+    use api::message::tool_call_result::Result as ToolResult;
+    use api::read_mcp_resource_result::Result as ResourceResult;
+    let mut images = Vec::new();
+    let mut add = |data: &[u8], mime_type: &str| {
+        if images.len() < MAX_IMAGES_PER_RESULT {
+            if let Some(image) = validated_image(data, mime_type) {
+                images.push(image);
+            }
+        }
+    };
+    match result {
+        ToolResult::CallMcpTool(call) => {
+            if let Some(McpResult::Success(success)) = &call.result {
+                for part in &success.results {
+                    match &part.result {
+                        Some(Part::Image(image)) => add(&image.data, &image.mime_type),
+                        Some(Part::Resource(resource)) => {
+                            if let Some(ContentType::Binary(binary)) = &resource.content_type {
+                                add(&binary.data, &binary.mime_type);
+                            }
+                        }
+                        Some(Part::Text(_)) | None => {}
+                    }
+                }
+            }
+        }
+        ToolResult::ReadMcpResource(read) => {
+            if let Some(ResourceResult::Success(success)) = &read.result {
+                for resource in &success.contents {
+                    if let Some(ContentType::Binary(binary)) = &resource.content_type {
+                        add(&binary.data, &binary.mime_type);
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+    images
 }
 
 #[cfg(test)]

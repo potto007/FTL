@@ -126,6 +126,7 @@ struct ProviderRow {
     add_model_button_state: MouseStateHandle,
     header_rows: Vec<HeaderRow>,
     add_header_button_state: MouseStateHandle,
+    tool_images_button_state: MouseStateHandle,
     /// 5 个 ApiType chip 各自的鼠标状态。HashMap 由 chip 显示名映射。
     api_type_chip_states: RefCell<HashMap<AgentProviderApiType, MouseStateHandle>>,
     model_rows: Vec<ModelRow>,
@@ -564,6 +565,7 @@ impl AgentProvidersWidget {
             add_model_button_state: MouseStateHandle::default(),
             header_rows,
             add_header_button_state,
+            tool_images_button_state: MouseStateHandle::default(),
             api_type_chip_states: RefCell::new(HashMap::new()),
             model_rows,
         }
@@ -1229,6 +1231,25 @@ impl AgentProvidersWidget {
             },
             appearance,
         );
+        let tool_images_enabled =
+            provider.tool_image_destination.as_deref() == Some(provider.base_url.as_str());
+        let tool_images_button = Self::render_card_button_preserving_draft(
+            if tool_images_enabled {
+                "Tool screenshots: allowed for this endpoint"
+            } else {
+                "Allow tool screenshots to this endpoint"
+            },
+            row.tool_images_button_state.clone(),
+            draft_editors.clone(),
+            AISettingsPageAction::ToggleAgentProviderToolImages {
+                provider_id: provider.id.clone(),
+            },
+            appearance,
+        );
+        let tool_images_note = Text::new(
+            "Includes MCP screenshots. Enable Image: On only after verifying the model can read images. Changing the endpoint requires new permission.".to_string(),
+            appearance.ui_font_family(), appearance.ui_font_size(),
+        ).with_color(label_color.into()).finish();
         let remove_button = Self::render_card_button(
             crate::t!("settings-agent-providers-remove"),
             row.remove_button_state.clone(),
@@ -1300,6 +1321,8 @@ impl AgentProvidersWidget {
                 .with_child(api_type_field)
                 .with_child(base_url_field)
                 .with_child(api_key_field)
+                .with_child(tool_images_button)
+                .with_child(tool_images_note)
                 .with_child(
                     Container::new(headers_column.finish())
                         .with_margin_top(8.)
