@@ -251,6 +251,7 @@ use std::sync::Arc;
 use terminal::input;
 use terminal::session_settings::SessionSettings;
 use url::Url;
+use warp_core::channel::Channel;
 use warp_core::execution_mode::{AppExecutionMode, ExecutionMode};
 use warp_managed_secrets::ManagedSecretManager;
 use workspace::sync_inputs::SyncedInputState;
@@ -2677,6 +2678,11 @@ pub fn enabled_features() -> HashSet<FeatureFlag> {
                 flags.insert(*flag);
             }
         }
+    }
+
+    // OSS 未显式启用更新时,不能被 RELEASE_FLAGS 重新开启后台更新。
+    if matches!(ChannelState::channel(), Channel::Oss) && !cfg!(feature = "autoupdate") {
+        flags.remove(&FeatureFlag::Autoupdate);
     }
 
     flags

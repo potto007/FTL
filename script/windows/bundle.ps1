@@ -60,7 +60,7 @@ if ($ARCH -eq 'arm64') {
 $ErrorActionPreference = 'Stop'
 
 $WORKSPACE_ROOT_DIR = $(Get-Location).Path
-$CARGO_TARGET_DIR = $WORKSPACE_ROOT_DIR + '\target'
+$CARGO_TARGET_DIR = if ($env:CARGO_TARGET_DIR) { $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($env:CARGO_TARGET_DIR) } else { Join-Path $WORKSPACE_ROOT_DIR 'target' }
 $WINDOWS_INSTALLER_DIR = $WORKSPACE_ROOT_DIR + '\script\windows'
 
 if ($DEBUG_BUILD) {
@@ -114,8 +114,8 @@ if ("$CHANNEL" -eq 'local') {
     $BINARY_NAME = 'zap-oss.exe'
     $APP_NAME = 'Zap'
     # OSS channel 使用本地 crash reporting,不启用 release 默认特性集合。
-    # autoupdate 走 GitHub Release(zerx-lab/warp),仅下载到 Downloads,不调 Inno Setup。
-    $FEATURES = 'release_bundle,gui,nld_improvements,autoupdate'
+    # FTL 默认禁用后台自动更新;手动检查只访问 potto007/FTL。
+    $FEATURES = 'release_bundle,gui,nld_improvements'
 }
 
 $BINARY_PATH = "$CARGO_TARGET_OUTPUT_DIR\$BINARY_NAME"
