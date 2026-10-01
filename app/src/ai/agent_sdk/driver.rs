@@ -973,6 +973,22 @@ impl AgentDriver {
         // Run the harness with a prompt
         match task.harness {
             HarnessKind::Oz => {
+                // The bootstrap block can still be active right after the session reports
+                // bootstrapped; agent view would then refuse to start the conversation and the
+                // run would hang. Wait (bounded) for the shell to return to an idle prompt.
+                for _ in 0..100 {
+                    let busy = foreground
+                        .spawn(|me, ctx| {
+                            me.terminal_driver
+                                .as_ref(ctx)
+                                .is_active_block_long_running(ctx)
+                        })
+                        .await?;
+                    if !busy {
+                        break;
+                    }
+                    warpui::r#async::Timer::after(Duration::from_millis(100)).await;
+                }
                 let conversation_status = foreground
                     .spawn(move |me, ctx| me.execute_run(task.prompt, ctx))
                     .await?

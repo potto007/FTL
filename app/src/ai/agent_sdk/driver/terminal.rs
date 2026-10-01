@@ -198,6 +198,15 @@ impl TerminalDriver {
         });
     }
 
+    /// Whether the active block is still executing past the long-running threshold
+    /// (e.g. the bootstrap block right after the session reports it is bootstrapped).
+    /// Agent view refuses to start a new conversation while this is true.
+    pub fn is_active_block_long_running(&self, ctx: &AppContext) -> bool {
+        let terminal = self.terminal_view.as_ref(ctx);
+        let model = terminal.model.lock();
+        model.block_list().active_block().is_active_and_long_running()
+    }
+
     /// Return a snapshot of the block with the given ID.
     pub fn block_snapshot(&self, block_id: &BlockId, ctx: &AppContext) -> Option<SerializedBlock> {
         let terminal = self.terminal_view.as_ref(ctx);
