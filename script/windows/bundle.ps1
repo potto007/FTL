@@ -16,9 +16,9 @@ Param (
     [String]$RELEASE_TAG = '',
     [String]$FEATURES = 'release_bundle,crash_reporting,gui',
 
-    # Builds only the Zap binary, skips the installer.
+    # Builds only the FTL binary, skips the installer.
     [Switch]$SKIP_BUILD_INSTALLER = $False,
-    # Builds only the installer, skips the Zap binary. Use this if the Zap
+    # Builds only the installer, skips the FTL binary. Use this if the FTL
     # binary has already been built.
     [Switch]$SKIP_BUILD_BINARY = $False,
 
@@ -60,7 +60,7 @@ if ($ARCH -eq 'arm64') {
 $ErrorActionPreference = 'Stop'
 
 $WORKSPACE_ROOT_DIR = $(Get-Location).Path
-$CARGO_TARGET_DIR = $WORKSPACE_ROOT_DIR + '\target'
+$CARGO_TARGET_DIR = if ($env:CARGO_TARGET_DIR) { $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($env:CARGO_TARGET_DIR) } else { Join-Path $WORKSPACE_ROOT_DIR 'target' }
 $WINDOWS_INSTALLER_DIR = $WORKSPACE_ROOT_DIR + '\script\windows'
 
 if ($DEBUG_BUILD) {
@@ -106,25 +106,26 @@ if ("$CHANNEL" -eq 'local') {
 } elseif ("$CHANNEL" -eq 'stable') {
     $WARP_BIN = 'stable'
     $BINARY_NAME = 'warp.exe'
-    $APP_NAME = 'Zap'
+    $APP_NAME = 'FTL'
     # TODO(vorporeal): Remove this once we get tests passing with this default enabled.
     $FEATURES = "$FEATURES,nld_improvements"
 } elseif ("$CHANNEL" -eq 'oss') {
-    $WARP_BIN = 'zap-oss'
-    $BINARY_NAME = 'zap-oss.exe'
-    $APP_NAME = 'Zap'
+    $WARP_BIN = 'ftl'
+    $BINARY_NAME = 'ftl.exe'
+    $APP_NAME = 'FTL'
     # OSS channel 使用本地 crash reporting,不启用 release 默认特性集合。
-    # autoupdate 走 GitHub Release(zerx-lab/warp),仅下载到 Downloads,不调 Inno Setup。
-    $FEATURES = 'release_bundle,gui,nld_improvements,autoupdate'
+    # FTL 默认禁用后台自动更新;手动检查只访问 potto007/FTL。
+    $FEATURES = 'release_bundle,gui,nld_improvements'
 }
 
 $BINARY_PATH = "$CARGO_TARGET_OUTPUT_DIR\$BINARY_NAME"
+$AGENT_SERVICE_PATH = "$CARGO_TARGET_OUTPUT_DIR\ftl-agent-service.exe"
 # AUMID(Windows AppUserModel ID)—— 必须与进程端 `ChannelState::app_id()` 生成的完全一致,
 # 否则 Windows ToastNotificationManager 会在 Start Menu 快捷方式 / 进程 AUMID 不匹配时
-# 静默吞掉 toast。OSS(Zap)在 `app/src/bin/oss.rs` 里是 `dev.zap.Zap`,
+# 静默吞掉 toast。OSS(FTL)在 `app/src/bin/ftl.rs` 里是 `dev.ftl.FTL`,
 # 其他官方 channel 是 `dev.warp.<Name>`。
 if ("$CHANNEL" -eq 'oss') {
-    $AUMID = "dev.zap.$APP_NAME"
+    $AUMID = "dev.ftl.$APP_NAME"
 } else {
     $AUMID = "dev.warp.$APP_NAME"
 }
@@ -145,22 +146,25 @@ if ($DEBUG_BUILD) {
 # If we only want to check that compilation will succeed, perform the checks
 # then exit.  We use this script to invoke `cargo check` to ensure that we are
 # using the same feature flags and profile that we would be using in production.
+$env:CARGO_BIN_NAME = $CHANNEL
+$env:WARP_APP_NAME = $APP_NAME
+if ($CHANNEL -eq 'oss') {
+    $env:WARP_APP_PUBLISHER = 'FTL'
+}
 if ($CHECK_ONLY) {
     cargo check -p warp --profile "$CARGO_PROFILE" --bin "$WARP_BIN" --features "$FEATURES" --target $PLATFORM_TARGET
     if (-Not $?) {
-        Write-Error "Failed to verify Zap $WARP_BIN compilation with profile $CARGO_PROFILE"
+        Write-Error "Failed to verify FTL $WARP_BIN compilation with profile $CARGO_PROFILE"
         exit 1
     }
     exit 0
 }
 
 if (-Not $SKIP_BUILD_BINARY) {
-    Write-Output "Building Zap for channel $CHANNEL and bundle id $BUNDLE_ID"
-    $env:CARGO_BIN_NAME = $CHANNEL
-    $env:WARP_APP_NAME = $APP_NAME
+    Write-Output "Building FTL for channel $CHANNEL and bundle id $BUNDLE_ID"
     cargo build -p warp --profile "$CARGO_PROFILE" --bin "$WARP_BIN" --features "$FEATURES" --target $PLATFORM_TARGET
     if (-Not $?) {
-        Write-Error "Failed to build Zap $WARP_BIN binary with profile $CARGO_PROFILE"
+        Write-Error "Failed to build FTL $WARP_BIN binary with profile $CARGO_PROFILE"
         exit 1
     }
 
@@ -170,6 +174,17 @@ if (-Not $SKIP_BUILD_BINARY) {
         Write-Output "Renaming executable $WARP_BIN.exe to $BINARY_NAME"
         Move-Item -Path "$binarySource" -Destination "$BINARY_PATH" -Force
     }
+
+    # 顺序构建独立代理程序，沿用相同目标和 profile，不继承主程序的 GUI 特性。
+    cargo build -p ftl_agent_service --profile "$CARGO_PROFILE" --bin ftl-agent-service --target $PLATFORM_TARGET
+    if (-Not $?) {
+        Write-Error "Failed to build FTL agent service with profile $CARGO_PROFILE"
+        exit 1
+    }
+}
+
+if (-Not (Test-Path -LiteralPath $AGENT_SERVICE_PATH -PathType Leaf)) {
+    throw "FTL agent service binary is missing: $AGENT_SERVICE_PATH. Build both binaries before packaging with -SKIP_BUILD_BINARY."
 }
 
 if ($SKIP_BUILD_INSTALLER) {
@@ -179,6 +194,7 @@ if ($SKIP_BUILD_INSTALLER) {
         Write-Output '::echo::on'
         "target_profile_dir=$CARGO_TARGET_OUTPUT_DIR" >> "$env:GITHUB_OUTPUT"
         "binary_path=$BINARY_PATH" >> "$env:GITHUB_OUTPUT"
+        "agent_service_path=$AGENT_SERVICE_PATH" >> "$env:GITHUB_OUTPUT"
         Write-Output '::echo::off'
     }
     exit 0
@@ -211,12 +227,12 @@ if (-Not $?) {
     exit 1
 }
 
-Write-Output 'Building Zap installer'
-# Inno Setup `AppId` 决定注册表 Uninstall 条目与升级跟踪键。OSS 下固定为 `zap-oss`,
+Write-Output 'Building FTL installer'
+# Inno Setup `AppId` 决定注册表 Uninstall 条目与升级跟踪键。OSS 下固定为 `ftl`,
 # 避免留在默认的 `warp-terminal-oss` 上。其他 channel 走 .iss 里的默认
 # `warp-terminal-{ReleaseChannel}`。
 if ("$CHANNEL" -eq 'oss') {
-    $INNO_APP_ID = 'zap-oss'
+    $INNO_APP_ID = 'ftl'
 } else {
     $INNO_APP_ID = "warp-terminal-$CHANNEL"
 }
@@ -224,6 +240,7 @@ $ISCC_ARGS = @(
     "$WINDOWS_INSTALLER_DIR\windows-installer.iss",
     "/DReleaseChannel=$CHANNEL",
     "/DMyAppExeName=$BINARY_NAME",
+    "/DAgentServicePath=$AGENT_SERVICE_PATH",
     "/DTargetProfileDir=$CARGO_TARGET_OUTPUT_DIR",
     "/DMyAppName=$APP_NAME",
     "/DMyAppVersion=$env:GIT_RELEASE_TAG",

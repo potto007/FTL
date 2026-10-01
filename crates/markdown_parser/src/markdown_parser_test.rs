@@ -2710,7 +2710,7 @@ fn test_parse_table_with_links() {
         assert_eq!(table.rows.len(), 1);
         let link_cell = &table.rows[0][0];
         assert_eq!(link_cell.len(), 1);
-        assert_eq!(link_cell[0].text, "Zap");
+        assert_eq!(link_cell[0].text, "FTL");
         assert!(matches!(
             &link_cell[0].styles.hyperlink,
             Some(Hyperlink::Url(url)) if url == "https://warp.dev"

@@ -1,3 +1,5 @@
+> Historical Zap migration guide. For the current FTL fork, see [FTL profile compatibility](ftl-rebrand.md).
+
 # Migrating settings to Zap
 
 [简体中文](./migrate-from-warp.zh-CN.md) · [日本語](./migrate-from-warp.ja.md)

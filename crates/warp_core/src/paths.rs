@@ -39,7 +39,7 @@ fn base_warp_config_dir_name() -> String {
         // Preview shares the same directory as Stable for backward
         // compatibility — existing users already have config in `.warp`.
         Channel::Stable | Channel::Preview => WARP_CONFIG_DIR.to_owned(),
-        Channel::Oss => ".zap".to_owned(),
+        Channel::Oss => ".ftl".to_owned(),
         Channel::Dev => format!("{WARP_CONFIG_DIR}-dev"),
         Channel::Integration => format!("{WARP_CONFIG_DIR}-integration"),
         Channel::Local => format!("{WARP_CONFIG_DIR}-local"),
@@ -88,7 +88,7 @@ fn macos_config_dir_name() -> String {
     match ChannelState::channel() {
         Channel::Stable => WARP_CONFIG_DIR.to_owned(),
         Channel::Preview => format!("{WARP_CONFIG_DIR}-preview"),
-        Channel::Oss => ".zap".to_owned(),
+        Channel::Oss => ".ftl".to_owned(),
         Channel::Dev => format!("{WARP_CONFIG_DIR}-dev"),
         Channel::Integration => format!("{WARP_CONFIG_DIR}-integration"),
         Channel::Local => format!("{WARP_CONFIG_DIR}-local"),
@@ -241,6 +241,8 @@ fn project_dirs_for_app_id(
             // Adjust the base application name so that we end up with
             // a directory like "zap" matching our Linux package name.
             let base_app_name = match app_id.application_name() {
+                "FTL" => "ftl".to_owned(),
+                other if other.starts_with("FTL") => other.replace("FTL", "ftl-"),
                 "Zap" => "zap".to_owned(),
                 other if other.starts_with("Zap") => other.replace("Zap", "zap-"),
                 _ => app_id.application_name().to_owned(),

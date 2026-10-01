@@ -7,6 +7,7 @@
 use thiserror::Error;
 use zeroize::Zeroizing;
 
+// 密钥库服务名保持兼容；重命名会使既有 SSH 凭据无法读取。
 const SERVICE: &str = "zap.ssh";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

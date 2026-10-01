@@ -260,6 +260,7 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
                         flags::THINKING_DISPLAY_SHOW_AND_COLLAPSE
                     }
                     ThinkingDisplayMode::AlwaysShow => flags::THINKING_DISPLAY_ALWAYS_SHOW,
+                    ThinkingDisplayMode::StartCollapsed => flags::THINKING_DISPLAY_START_COLLAPSED,
                     ThinkingDisplayMode::NeverShow => flags::THINKING_DISPLAY_NEVER_SHOW,
                 };
                 FixedBinding::empty(
@@ -672,7 +673,7 @@ impl AISettingsPageView {
         });
         // The coding agent footer command editor is always enabled,
         // independent of the global AI toggle, because it controls
-        // third-party coding agents rather than Zap's own AI.
+        // third-party coding agents rather than FTL's own AI.
         Self::update_editor_interaction_state(
             cli_agent_footer_command_editor.as_ref(ctx).editor().clone(),
             true,
@@ -2265,6 +2266,9 @@ pub enum AISettingsPageAction {
     },
     // 自定义 Agent Provider 管理动作
     AddAgentProvider,
+    ToggleAgentProviderToolImages {
+        provider_id: String,
+    },
     RemoveAgentProvider {
         provider_id: String,
     },
@@ -3073,6 +3077,26 @@ impl TypedActionView for AISettingsPageView {
                         .toggle_and_save_value(ctx));
                 });
                 ctx.notify();
+            }
+            AISettingsPageAction::ToggleAgentProviderToolImages { provider_id } => {
+                AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                    let mut providers = settings.agent_providers.value().clone();
+                    if let Some(provider) = providers
+                        .iter_mut()
+                        .find(|provider| provider.id == *provider_id)
+                    {
+                        provider.tool_image_destination =
+                            if provider.tool_image_destination.as_deref()
+                                == Some(provider.base_url.as_str())
+                            {
+                                None
+                            } else {
+                                Some(provider.base_url.clone())
+                            };
+                    }
+                    let _ = settings.agent_providers.set_value(providers, ctx);
+                });
+                self.rebuild_current_page(ctx);
             }
             AISettingsPageAction::AddAgentProvider => {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
@@ -5066,7 +5090,7 @@ impl AgentsWidget {
         let subtext = {
             let subtext_fragments = vec![
                 FormattedTextFragment::plain_text(
-                    "You haven't added any MCP servers yet. Once you do, you'll be able to control how much autonomy the Zap Agent has when interacting with them. ",
+                    "You haven't added any MCP servers yet. Once you do, you'll be able to control how much autonomy the FTL Agent has when interacting with them. ",
                 ),
                 FormattedTextFragment::hyperlink_action(
                     crate::t!("settings-ai-add-server"),
@@ -5549,7 +5573,7 @@ impl SettingsWidget for MCPServersWidget {
 
         let mcp_description = vec![
             FormattedTextFragment::plain_text(
-                "Add MCP servers to extend the Zap Agent's capabilities. \
+                "Add MCP servers to extend the FTL Agent's capabilities. \
             MCP servers expose data sources or tools to agents through a standardized interface, essentially acting like plugins. ",
             ),
             FormattedTextFragment::hyperlink(
@@ -5787,7 +5811,7 @@ impl SettingsWidget for AIFactWidget {
             column.add_child(self.render_rule_suggestions_toggle(view, ai_settings, app));
         }
 
-        // 去中心化分支:不再渲染 "Zap Drive as agent context" 开关。
+        // 去中心化分支:不再渲染 "FTL Drive as agent context" 开关。
         let _ = self;
         let _ = view;
         column.with_child(button).finish()
@@ -5821,7 +5845,7 @@ impl VoiceWidget {
 
         let voice_input_description_text_fragments = vec![
             FormattedTextFragment::plain_text(
-                "Voice input allows you to control Zap by speaking directly to your terminal (powered by ",
+                "Voice input allows you to control FTL by speaking directly to your terminal (powered by ",
             ),
             FormattedTextFragment::hyperlink("Wispr Flow", WISPR_FLOW_URL),
             FormattedTextFragment::plain_text(")."),
@@ -6097,7 +6121,7 @@ impl SettingsWidget for CLIAgentWidget {
 
         // The Coding Agents section is always enabled, independent of the
         // global AI toggle, because these settings control third-party coding
-        // agents (Claude Code, Codex, Gemini CLI) rather than Zap's own AI.
+        // agents (Claude Code, Codex, Gemini CLI) rather than FTL's own AI.
         let cli_agent_footer_toggle = render_ai_setting_toggle::<ShouldRenderCLIAgentToolbar>(
             crate::t!("settings-ai-show-coding-agent-toolbar"),
             AISettingsPageAction::ToggleCLIAgentToolbar,

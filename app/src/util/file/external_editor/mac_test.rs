@@ -2,6 +2,7 @@ use super::is_zap_bundle;
 
 #[test]
 fn is_zap_bundle_recognises_zap_channels() {
+    assert!(is_zap_bundle("dev.ftl.FTL"));
     // OSS (Zap) 自身。
     assert!(is_zap_bundle("dev.zap.Zap"));
     // 上游 Warp 各 channel —— 同样视为本应用家族,允许 default-app 重定向。

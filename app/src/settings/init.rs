@@ -3,6 +3,10 @@ use warp_core::features::FeatureFlag;
 use warpui::{rendering::GPUPowerPreference, AppContext, SingletonEntity};
 use warpui_extras::user_preferences;
 
+#[cfg(any(all(windows, feature = "release_bundle"), test))]
+#[path = "legacy_profile.rs"]
+mod legacy_profile;
+
 use crate::{
     appearance,
     banner::BannerState,
@@ -33,13 +37,13 @@ use warp_core::semantic_selection::SemanticSelection;
 use super::{
     app_icon::AppIconSettings, app_installation_detection::UserAppInstallDetectionSettings,
     cloud_preferences::PreferencesSettings, cloud_sync::CloudSyncSettings,
-    initializer::SettingsInitializer,
-    language::LanguageSettings, native_preference::NativePreferenceSettings,
-    network::NetworkSettings, AISettings, AccessibilitySettings, AliasExpansionSettings,
-    AppEditorSettings, AutoupdateSettings, BlockVisibilitySettings, CodeSettings, DebugSettings,
-    EmacsBindingsSettings, FontSettings, FontSettingsChangedEvent, GPUSettings, InputBoxType,
-    InputModeSettings, InputSettings, PaneSettings, SameLinePromptBlockSettings, ScrollSettings,
-    SelectionSettings, SshSettings, ThemeSettings, VimBannerSettings, WarpDrivePrivacySettings,
+    initializer::SettingsInitializer, language::LanguageSettings,
+    native_preference::NativePreferenceSettings, network::NetworkSettings, AISettings,
+    AccessibilitySettings, AliasExpansionSettings, AppEditorSettings, AutoupdateSettings,
+    BlockVisibilitySettings, CodeSettings, DebugSettings, EmacsBindingsSettings, FontSettings,
+    FontSettingsChangedEvent, GPUSettings, InputBoxType, InputModeSettings, InputSettings,
+    PaneSettings, SameLinePromptBlockSettings, ScrollSettings, SelectionSettings, SshSettings,
+    ThemeSettings, VimBannerSettings, WarpDrivePrivacySettings,
 };
 
 pub struct UserDefaultsOnStartup {
@@ -73,7 +77,7 @@ pub fn register_all_settings(ctx: &mut AppContext) {
     GPUSettings::register(ctx);
     GeneralSettings::register(ctx);
     AISettings::register_and_subscribe_to_events(ctx);
-    // Zap Wave 7-3:`AmbientAgentSettings` 随 ambient-agent UI 子系统物理删。
+    // FTL Wave 7-3:`AmbientAgentSettings` 随 ambient-agent UI 子系统物理删。
     ScrollSettings::register(ctx);
     SelectionSettings::register(ctx);
     InputModeSettings::register(ctx);
@@ -372,6 +376,19 @@ pub fn init_public_user_preferences() -> (user_preferences::Model, Option<user_p
             (Box::<user_preferences::local_storage::LocalStoragePreferences>::default(), None)
         } else {
             if warp_core::features::FeatureFlag::SettingsFile.is_enabled() {
+                #[cfg(all(windows, feature = "release_bundle"))]
+                if warp_core::channel::ChannelState::channel() == warp_core::channel::Channel::Oss
+                    && warp_core::channel::ChannelState::data_profile().is_none()
+                {
+                    if let Some(local) = dirs::data_local_dir() {
+                        let source = local.join("zap\\Zap\\config\\settings.toml");
+                        if let Err(error) = legacy_profile::import_legacy_settings(
+                            &source, &super::user_preferences_toml_file_path(),
+                        ) {
+                            log::warn!("Could not import legacy portable settings: {error}");
+                        }
+                    }
+                }
                 let (prefs, parse_error) =
                     user_preferences::toml_backed::TomlBackedUserPreferences::new(
                         super::user_preferences_toml_file_path(),

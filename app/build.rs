@@ -1,5 +1,5 @@
 // We can use `std::process:Command` here because this is invoked within a build script,
-// _not_ within the Zap binary (where it could cause a terminal to temporarily flash on
+// _not_ within the FTL binary (where it could cause a terminal to temporarily flash on
 // Windows).
 #![allow(clippy::disallowed_types)]
 
@@ -47,8 +47,8 @@ fn main() -> Result<()> {
             .compile("warp_objc");
 
         // Build the dock tile plugin
-        println!("cargo:rerun-if-changed=DockTilePlugin/ZapDockTilePlugin.m");
-        println!("cargo:rerun-if-changed=DockTilePlugin/ZapDockTilePlugin.h");
+        println!("cargo:rerun-if-changed=DockTilePlugin/FTLDockTilePlugin.m");
+        println!("cargo:rerun-if-changed=DockTilePlugin/FTLDockTilePlugin.h");
         println!("cargo:rerun-if-changed=DockTilePlugin/Info.plist");
         println!("cargo:rerun-if-changed=DockTilePlugin/Makefile");
 
@@ -66,8 +66,8 @@ fn main() -> Result<()> {
         // Copy the dock tile plugin to the output directory
         let profile = get_build_profile_name();
         let target_dir = app_target_dir(&profile).expect("Failed to get app target directory");
-        let plugin_src = Path::new("DockTilePlugin/ZapDockTilePlugin.docktileplugin");
-        let plugin_dst = target_dir.join("ZapDockTilePlugin.docktileplugin");
+        let plugin_src = Path::new("DockTilePlugin/FTLDockTilePlugin.docktileplugin");
+        let plugin_dst = target_dir.join("FTLDockTilePlugin.docktileplugin");
 
         if !status.success() {
             fs::remove_dir_all(plugin_src).expect("Failed to clean up plugin directory");
@@ -119,32 +119,22 @@ fn main() -> Result<()> {
         if target_env == "msvc"
             && env::var("CARGO_FEATURE_WINDOWS_HIGH_PERFORMANCE_GPU_DEFAULT").is_ok()
         {
-            println!("cargo:rustc-link-arg-bin=zap-oss=/EXPORT:NvOptimusEnablement,DATA");
+            println!("cargo:rustc-link-arg-bin=ftl=/EXPORT:NvOptimusEnablement,DATA");
             println!(
-                "cargo:rustc-link-arg-bin=zap-oss=/EXPORT:AmdPowerXpressRequestHighPerformance,DATA"
+                "cargo:rustc-link-arg-bin=ftl=/EXPORT:AmdPowerXpressRequestHighPerformance,DATA"
             );
         }
 
-        // Retrieve the Cargo profile name so that we can put a copy of ConPTY in
-        // the correct target subdirectory.
-        //
-        // We need to pass this information manually through an environment variable.
-        // Of the built-in variables set by Cargo: `OUT_DIR` is only a temporary
-        // directory, and `PROFILE` can only be `debug` or `release`.
-        // See https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-build-scripts
-        // for more on Cargo environment variables.
-        //
-        // Ideally we could access `CARGO_TARGET_DIR` but this doesn't exist at build time.
-        // See https://github.com/rust-lang/cargo/issues/9661.
-        //
-        // Cargo defaults to the `debug` profile.
-        let cargo_full_profile = env::var("CARGO_FULL_PROFILE").unwrap_or(String::from("debug"));
-        let target_dir =
-            app_target_dir(&cargo_full_profile).expect("Could not get app target directory");
-        copy_windows_assets(&target_dir);
+        // 从 Cargo 的实际输出路径取得 profile 目录,兼容共享 target 与显式目标三元组。
+        let out_dir = env::var_os("OUT_DIR").expect("OUT_DIR must be set");
+        let target_dir = Path::new(&out_dir)
+            .ancestors()
+            .nth(3)
+            .expect("Could not get app target directory");
+        copy_windows_assets(target_dir);
 
         #[cfg(windows)]
-        embed_resource_file(&target_dir);
+        embed_resource_file(target_dir);
     }
 
     if target_family == "wasm" {
@@ -168,7 +158,7 @@ fn generate_channel_config_if_needed(target_family: &str, target_os: &str) {
     let config_bin = "warp-channel-config";
 
     // Check if the config binary is available on PATH. If not, we can't generate embedded
-    // configs. This is expected for external contributors building Zap OSS.
+    // configs. This is expected for external contributors building FTL OSS.
     if Command::new(config_bin)
         .arg("--help")
         .stdout(std::process::Stdio::null())
@@ -286,7 +276,7 @@ fn copy_async_assets() {
     }
 }
 
-/// Copies the DLLs needed to run Zap on Windows.
+/// Copies the DLLs needed to run FTL on Windows.
 ///
 /// They are organized as follows:
 /// - `conpty.dll`
@@ -366,20 +356,30 @@ fn parse_file_version_quad(tag: &str) -> (u16, u16, u16, u16) {
 fn embed_resource_file(target_dir: &Path) {
     use std::io::Write;
 
+    for variable in [
+        "GIT_RELEASE_TAG",
+        "WARP_APP_NAME",
+        "WARP_APP_PUBLISHER",
+        "CARGO_BIN_NAME",
+    ] {
+        println!("cargo:rerun-if-env-changed={variable}");
+    }
+
     let version = env::var("GIT_RELEASE_TAG").unwrap_or("v0".to_owned());
-    // 默认值与 publisher 一致定为「Zap」,与 `script/windows/bundle.ps1` OSS 分支
-    // (`$APP_NAME = 'Zap'`) + AUMID `dev.zap.Zap` + Cargo bundle
+    // 默认值与 publisher 一致定为「FTL」,与 `script/windows/bundle.ps1` OSS 分支
+    // (`$APP_NAME = 'FTL'`) + AUMID `dev.ftl.FTL` + Cargo bundle
     // metadata 全局对齐。Windows 任务管理器的进程分组名实际取自 PE 资源中的
-    // `FileDescription` / `ProductName`(不是窗口标题),所以这里若回退默认 "Zap",
-    // 直接 `cargo build` 出来的 dev 二进制在任务管理器里会显示成 `Zap(N)`。
+    // `FileDescription` / `ProductName`(不是窗口标题),所以这里若回退默认 "FTL",
+    // 直接 `cargo build` 出来的 dev 二进制在任务管理器里会显示成 `FTL(N)`。
     // 上游官方流水线在调用前会显式 `export WARP_APP_NAME=...` 覆盖,不受影响。
-    let app_name = env::var("WARP_APP_NAME").unwrap_or_else(|_| "Zap".to_owned());
+    let app_name = env::var("WARP_APP_NAME").unwrap_or_else(|_| "FTL".to_owned());
     let bin_name = env::var("CARGO_BIN_NAME").unwrap_or("oss".to_owned());
-    // 以 `WARP_APP_PUBLISHER` 覆盖;默认与 installer / AUMID 一致为「Zap」。
+    let executable_name = if bin_name == "oss" { "ftl" } else { &bin_name };
+    // 以 `WARP_APP_PUBLISHER` 覆盖;默认与 installer / AUMID 一致为「FTL」。
     // 保持 installer `MyAppPublisher`、Cargo bundle metadata `copyright`、
-    // 进程 AUMID `dev.zap.Zap` 三处全局对齐，避免 Windows Shell
+    // 进程 AUMID `dev.ftl.FTL` 三处全局对齐，避免 Windows Shell
     // 因 publisher / product name fingerprint 不一致而 miss 掉 icon cache。
-    let publisher = env::var("WARP_APP_PUBLISHER").unwrap_or_else(|_| "Zap".to_owned());
+    let publisher = env::var("WARP_APP_PUBLISHER").unwrap_or_else(|_| "FTL".to_owned());
     let (ver_major, ver_minor, ver_patch, ver_build) = parse_file_version_quad(&version);
 
     let icon_path = Path::new("channels")
@@ -387,6 +387,7 @@ fn embed_resource_file(target_dir: &Path) {
         .join("icon")
         .join("padded")
         .join("icon.ico");
+    println!("cargo:rerun-if-changed={}", icon_path.display());
 
     if !icon_path.exists() {
         println!(
@@ -427,8 +428,8 @@ BEGIN
             VALUE "FileDescription",  "{app_name}\0"
             VALUE "FileVersion",      "{version}\0"
             VALUE "LegalCopyright",   "© 2025-2026, {publisher}\0"
-            VALUE "InternalName",     "{bin_name}\0"
-            VALUE "OriginalFilename", "{bin_name}.exe\0"
+            VALUE "InternalName",     "{executable_name}\0"
+            VALUE "OriginalFilename", "{executable_name}.exe\0"
             VALUE "ProductName",      "{app_name}\0"
             VALUE "ProductVersion",   "{version}\0"
         END

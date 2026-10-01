@@ -7,6 +7,7 @@ mod mouse;
 mod screenshot;
 
 use async_trait::async_trait;
+#[cfg(all(feature = "gui-timer", not(feature = "headless")))]
 use warpui::r#async::Timer;
 use windows::Win32::System::StationsAndDesktops::{
     CloseDesktop, DESKTOP_ACCESS_FLAGS, DESKTOP_CONTROL_FLAGS, HDESK, OpenInputDesktop,
@@ -118,7 +119,10 @@ impl super::Actor for Actor {
         for action in actions {
             match action {
                 Action::Wait(duration) => {
+                    #[cfg(all(feature = "gui-timer", not(feature = "headless")))]
                     Timer::after(*duration).await;
+                    #[cfg(any(not(feature = "gui-timer"), feature = "headless"))]
+                    tokio::time::sleep(*duration).await;
                 }
                 Action::MouseDown { button, at } => {
                     mouse.move_to(*at)?;

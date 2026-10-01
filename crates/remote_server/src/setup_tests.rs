@@ -196,13 +196,13 @@ fn parse_preinstall_missing_status_falls_open() {
 }
 
 #[test]
-fn oss_remote_server_dir_uses_zap_namespace() {
-    assert_eq!(remote_server_dir(), "~/.zap/remote-server");
+fn oss_remote_server_dir_uses_ftl_namespace() {
+    assert_eq!(remote_server_dir(), "~/.ftl/remote-server");
 }
 
 #[test]
-fn oss_binary_name_matches_zap_cli() {
-    assert_eq!(binary_name(), "warp-oss");
+fn oss_binary_name_matches_ftl_cli() {
+    assert_eq!(binary_name(), "ftl");
 }
 
 #[test]
@@ -216,19 +216,70 @@ fn oss_download_tarball_url_uses_github_release_asset() {
 
     assert_eq!(
         url,
-        "https://github.com/zerx-lab/warp/releases/latest/download/zap-linux-x86_64.tar.gz"
+        "https://github.com/potto007/FTL/releases/latest/download/ftl-linux-x86_64.tar.gz"
     );
     assert!(!url.contains("app.warp.dev"));
     assert!(!url.contains("/download/cli"));
 }
 
 #[test]
-fn install_script_uses_zap_asset_and_staging_placeholder() {
-    let script = install_script(Some("~/.zap/remote-server/zap-upload.tar.gz"));
+fn install_script_uses_ftl_asset_and_staging_placeholder() {
+    let script = install_script(Some("~/.ftl/remote-server/ftl-upload.tar.gz"));
 
-    assert!(script
-        .contains("staging_tarball_path=\"~/.zap/remote-server/zap-upload.tar.gz\""));
-    assert!(script.contains("zap-$os_name-$arch_name.tar.gz"));
+    assert!(script.contains("staging_tarball_path=\"~/.ftl/remote-server/ftl-upload.tar.gz\""));
+    assert!(script.contains("ftl-$os_name-$arch_name.tar.gz"));
     assert!(!script.contains("app.warp.dev"));
     assert!(!script.contains("/download/cli"));
+    assert!(script.contains("[ \"false\" = \"true\" ]"));
+    assert!(script.contains("bin=\"$tmpdir/ftl\""));
+}
+
+#[test]
+fn oss_release_urls_are_pinned_to_ftl_and_keep_legacy_channels_separate() {
+    assert_eq!(
+        download_url_for_channel(Channel::Oss, Some("v1.2.3")),
+        "https://github.com/potto007/FTL/releases/download/v1.2.3"
+    );
+    assert_eq!(artifact_prefix(Channel::Oss), "ftl");
+    for channel in [
+        Channel::Stable,
+        Channel::Preview,
+        Channel::Dev,
+        Channel::Local,
+        Channel::Integration,
+    ] {
+        assert_eq!(
+            download_url_for_channel(channel, None),
+            "https://github.com/zerx-lab/warp/releases/latest/download"
+        );
+        assert_eq!(artifact_prefix(channel), "zap");
+    }
+}
+
+#[test]
+fn published_remote_assets_match_ftl_release_workflow() {
+    let workflow = include_str!("../../../.github/workflows/ftl_release.yml");
+    assert!(workflow.contains("tar czf ftl-linux-x86_64.tar.gz"));
+    assert!(workflow.contains("tar czf ftl-macos-${{ matrix.arch }}.tar.gz"));
+    assert!(workflow.contains("- arch: aarch64"));
+    assert!(workflow.contains("- arch: x86_64"));
+    for (os, arch, expected) in [
+        (
+            RemoteOs::Linux,
+            RemoteArch::X86_64,
+            "ftl-linux-x86_64.tar.gz",
+        ),
+        (
+            RemoteOs::MacOs,
+            RemoteArch::X86_64,
+            "ftl-macos-x86_64.tar.gz",
+        ),
+        (
+            RemoteOs::MacOs,
+            RemoteArch::Aarch64,
+            "ftl-macos-aarch64.tar.gz",
+        ),
+    ] {
+        assert!(download_tarball_url(&RemotePlatform { os, arch }).ends_with(expected));
+    }
 }

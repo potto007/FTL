@@ -5109,6 +5109,77 @@ dependencies = [
 ]
 
 [[package]]
+name = "ftl_agent_core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "ftl_agent_service"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "clap",
+ "ftl_agent_core",
+ "ftl_desktop_broker",
+ "reqwest 0.12.28",
+ "serde_json",
+ "tokio",
+ "url",
+]
+
+[[package]]
+name = "ftl_desktop_broker"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "computer_use",
+ "futures",
+ "serde",
+ "serde_json",
+ "url",
+ "windows 0.62.2",
+]
+
+[[package]]
+name = "ftl_sftp"
+version = "0.1.0"
+dependencies = [
+ "openssl-sys",
+ "smol",
+ "ssh2",
+ "tempfile",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "ftl_sync"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "anyhow",
+ "base64 0.22.1",
+ "chrono",
+ "log",
+ "reqwest 0.12.28",
+ "rustls 0.23.40",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
 name = "funty"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -14725,6 +14796,8 @@ dependencies = [
  "float-cmp",
  "fluent",
  "freedesktop-desktop-entry",
+ "ftl_sftp",
+ "ftl_sync",
  "futures",
  "futures-lite 1.13.0",
  "futures-timer",
@@ -14913,8 +14986,6 @@ dependencies = [
  "winit",
  "winreg",
  "x11rb",
- "zap_sftp",
- "zap_sync",
  "zbus 5.16.0",
  "zeroize",
 ]
@@ -15273,6 +15344,7 @@ dependencies = [
  "diesel",
  "diesel_migrations",
  "dirs 6.0.0",
+ "ftl_sync",
  "futures-lite 1.13.0",
  "instant",
  "keyring",
@@ -15287,7 +15359,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "uuid",
- "zap_sync",
  "zeroize",
 ]
 
@@ -17106,35 +17177,6 @@ dependencies = [
  "quote",
  "syn 2.0.117",
  "synstructure",
-]
-
-[[package]]
-name = "zap_sftp"
-version = "0.1.0"
-dependencies = [
- "openssl-sys",
- "smol",
- "ssh2",
- "tempfile",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "zap_sync"
-version = "0.1.0"
-dependencies = [
- "aes-gcm",
- "anyhow",
- "base64 0.22.1",
- "chrono",
- "log",
- "reqwest 0.12.28",
- "rustls 0.23.40",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.18",
- "tokio",
 ]
 
 [[package]]

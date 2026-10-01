@@ -124,7 +124,7 @@ fn read_result_to_json(result: &api::message::tool_call_result::Result) -> Optio
 
 pub static READ_DOCUMENTS: OpenAiTool = OpenAiTool {
     name: "read_documents",
-    description: "Read a local Zap Drive document (referenced by document_id, not a file on the filesystem). \
+    description: "Read a local FTL Drive document (referenced by document_id, not a file on the filesystem). \
                   Returns JSON: { documents: [{document_id, content, line_range?}] }. \
                   Use this when the user mentions a specific document_id or a particular document in Drive.",
     parameters: read_parameters,
@@ -213,7 +213,7 @@ fn edit_result_to_json(result: &api::message::tool_call_result::Result) -> Optio
 
 pub static EDIT_DOCUMENTS: OpenAiTool = OpenAiTool {
     name: "edit_documents",
-    description: "Perform a string search-and-replace on a document that already exists in Zap Drive. \
+    description: "Perform a string search-and-replace on a document that already exists in FTL Drive. \
                   Similar to apply_file_diffs::edit, but the target is a Drive document (referenced by document_id). \
                   search must match the document's existing content **exactly** (including whitespace and newlines), or it fails.",
     parameters: edit_parameters,
@@ -299,7 +299,7 @@ fn create_result_to_json(result: &api::message::tool_call_result::Result) -> Opt
 
 pub static CREATE_DOCUMENTS: OpenAiTool = OpenAiTool {
     name: "create_documents",
-    description: "Create one or more new documents in Zap Drive (each with a title + full content). \
+    description: "Create one or more new documents in FTL Drive (each with a title + full content). \
                   Good for capturing analysis results, notes, todos and the like as reusable Drive documents.",
     parameters: create_parameters,
     from_args: create_from_args,

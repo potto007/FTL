@@ -651,6 +651,14 @@ impl Default for CollapsibleElementState {
 }
 
 impl CollapsibleElementState {
+    fn for_reasoning(mode: crate::settings::ThinkingDisplayMode) -> Self {
+        let mut state = Self::default();
+        if mode == crate::settings::ThinkingDisplayMode::StartCollapsed {
+            state.expansion_state = CollapsibleExpansionState::Collapsed;
+        }
+        state
+    }
+
     fn expand(&mut self) {
         self.expansion_state = CollapsibleExpansionState::Expanded {
             is_finished: self.last_known_is_finished,
@@ -1875,7 +1883,11 @@ impl AIBlock {
                 let entry = self
                     .collapsible_block_states
                     .entry(message.id.clone())
-                    .or_default();
+                    .or_insert_with(|| {
+                        CollapsibleElementState::for_reasoning(
+                            *AISettings::as_ref(ctx).thinking_display_mode.value(),
+                        )
+                    });
                 if finished_duration.is_some() {
                     entry.finish_reasoning(ctx);
                 } else {

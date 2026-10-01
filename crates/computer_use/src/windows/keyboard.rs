@@ -296,7 +296,17 @@ impl Keyboard {
                 inputs.push(make_unicode_input(unit, true));
             }
         }
-        send_inputs(&inputs)
+        let (sent, result) = send_inputs_tracked(&inputs);
+        // 部分发送可能只注入最后一个 UTF-16 单元的按下事件，必须补偿释放。
+        if result.is_err() && sent % 2 == 1 {
+            let pending = unsafe { inputs[sent as usize - 1].Anonymous.ki.wScan };
+            if send_inputs(&[make_unicode_input(pending, true)]).is_err() {
+                return Err(
+                    "Unicode input was partial and its release failed; stop automation".to_owned(),
+                );
+            }
+        }
+        result
     }
 }
 
@@ -324,7 +334,7 @@ fn resolve_key(key: &Key, hkl: HKL) -> Result<ResolvedKey, String> {
 /// Resolves a character to either a VK (with optional shift) or a Unicode code-unit dispatch,
 /// using the given keyboard layout handle (typically the foreground window's). This matches what
 /// a real keystroke would look like to the target application when the user is running a
-/// different input language / IME than Zap's thread.
+/// different input language / IME than FTL's thread.
 ///
 /// Falls back to `ResolvedKey::Unicode` when the layout would require ctrl/alt to produce the
 /// character (e.g., AltGr-accessed keys on several European layouts) so `Key::Char` remains
@@ -429,7 +439,7 @@ fn is_shift_vk(vk: u16) -> bool {
 /// Returns the keyboard layout (`HKL`) currently active on the foreground window's thread,
 /// falling back to the calling thread's layout (HKL `0`) if there is no foreground window. Using
 /// the foreground window's HKL makes `Key::Char` resolution match what a real keystroke would
-/// produce for the target application, which matters in multilingual setups where Zap's thread
+/// produce for the target application, which matters in multilingual setups where FTL's thread
 /// layout can differ from the app's.
 fn foreground_keyboard_layout() -> HKL {
     // SAFETY: `GetForegroundWindow` has no preconditions; returns null if no foreground window.

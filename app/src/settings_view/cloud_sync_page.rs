@@ -33,15 +33,15 @@ use crate::ssh_manager::{SshTreeChangedEvent, SshTreeChangedNotifier};
 use crate::view_components::dropdown::{Dropdown, DropdownItem};
 
 use warp_ssh_manager::{with_conn, DbVersionStore, SyncMetaRepository, SshSyncProvider};
-use zap_sync::{GistClient, GistClientError, SyncEngine, SyncPlatform, SyncResult, SyncEngineError};
+use ftl_sync::{GistClient, GistClientError, SyncEngine, SyncPlatform, SyncResult, SyncEngineError};
 
 const INPUT_AREA_MAX_WIDTH: f32 = 420.0;
 const BUTTON_PADDING: f32 = 6.0;
 const DIALOG_WIDTH: f32 = 450.0;
 
-/// 把 `zap_sync` 的错误按当前 UI locale 渲染成用户可见文案。
+/// 把 `ftl_sync` 的错误按当前 UI locale 渲染成用户可见文案。
 ///
-/// `zap_sync` 是独立 crate,不依赖 app 的 i18n 层,其 `Display` 是稳定英文(给 log 用)。
+/// `ftl_sync` 是独立 crate,不依赖 app 的 i18n 层,其 `Display` 是稳定英文(给 log 用)。
 /// 本地化只能在 app crate 边界做:此处翻译错误类别前缀,内层 detail 仍是底层英文原文。
 fn localize_sync_error(error: &SyncEngineError) -> String {
     match error {

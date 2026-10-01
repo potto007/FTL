@@ -103,8 +103,8 @@ impl UriHost {
         match self {
             UriHost::Auth => {
                 safe_info!(
-                    safe: ("Ignored auth url because Zap has no cloud login flow"),
-                    full: ("Ignored auth url {url} because Zap has no cloud login flow")
+                    safe: ("Ignored auth url because FTL has no cloud login flow"),
+                    full: ("Ignored auth url {url} because FTL has no cloud login flow")
                 );
             }
             UriHost::Action => {
@@ -282,7 +282,7 @@ impl UriHost {
                         // 随 UI 一同物理删。保留 arm 以记录原意图,物理处理为 no-op。
                         "platform" => {
                             log::warn!(
-                                "warp://settings/platform 路由在 Zap 中已下线,忽略该请求"
+                                "warp://settings/platform 路由在 FTL 中已下线,忽略该请求"
                             );
                         }
                         "appearance" => {
@@ -660,7 +660,7 @@ impl Action {
             Self::Docker | Self::OpenRepo | Self::NewAgentConversation => W::default(),
             Self::NewTab => W::ShowPrimaryWindow(WindowActivationFallbackBehavior::Notify {
                 title: "New tab created".to_owned(),
-                description: "Go to Zap to see your new tab.".to_owned(),
+                description: "Go to FTL to see your new tab.".to_owned(),
             }),
             Self::NewWindow => W::Nothing,
         }

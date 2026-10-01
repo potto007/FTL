@@ -291,19 +291,19 @@ pub async fn make_authenticated_client(
             log::warn!(
                 "File-based MCP server {uuid} requires OAuth authentication; \
                  skipping in headless mode. To use this server, authenticate it \
-                 in the Zap desktop app first."
+                 in the FTL desktop app first."
             );
         }
         return Err(AuthError::AuthorizationFailed(
             "MCP server requires OAuth authentication. Please authenticate this server in the \
-             Zap desktop app first, then try again."
+             FTL desktop app first, then try again."
                 .to_string(),
         ));
     }
 
     // Start the authorization process with our custom redirect URI
     oauth_state
-        .start_authorization(&[], &redirect_uri, Some("Zap"))
+        .start_authorization(&[], &redirect_uri, Some("FTL"))
         .await?;
 
     let OAuthState::Session(AuthorizationSession {
@@ -321,7 +321,7 @@ pub async fn make_authenticated_client(
     // For apps for which we have static client IDs (e.g. GitHub), we manually override scopes.
     let mut scopes: &[&str] = &[];
 
-    let config = match auth_manager.register_client("Zap", &redirect_uri).await {
+    let config = match auth_manager.register_client("FTL", &redirect_uri).await {
         Ok(config) => config,
         Err(err @ AuthError::RegistrationFailed(_)) => {
             // If we failed dynamic registration, check to see if this is an auth

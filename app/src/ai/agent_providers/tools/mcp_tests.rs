@@ -13,7 +13,10 @@ use std::sync::Arc;
 
 use crate::ai::agent::{MCPContext, MCPServer};
 
-use super::{build_mcp_tool_defs, function_name};
+use super::{
+    api, build_mcp_tool_defs, function_name, result_images, serialize_result,
+    MAX_IMAGE_BASE64_BYTES,
+};
 
 /// 构造一个 `rmcp::model::Tool`,带最小输入 schema。
 fn mk_tool(name: &'static str, desc: &'static str) -> Tool {
@@ -200,4 +203,47 @@ fn read_resource_description_is_stable_and_sorted() {
     let pos_a = last.1.find("a.txt").expect("应含 a.txt");
     let pos_z = last.1.find("z.txt").expect("应含 z.txt");
     assert!(pos_a < pos_z, "available_uris 必须按字典序排");
+}
+
+fn image_result(data: &[u8], mime_type: &str) -> api::message::tool_call_result::Result {
+    use api::call_mcp_tool_result::{self as call, success};
+    api::message::tool_call_result::Result::CallMcpTool(api::CallMcpToolResult {
+        result: Some(call::Result::Success(call::Success {
+            results: vec![success::Result {
+                result: Some(success::result::Result::Image(success::result::Image {
+                    data: data.to_vec(),
+                    mime_type: mime_type.into(),
+                })),
+            }],
+        })),
+    })
+}
+
+const TEST_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg==";
+
+#[test]
+fn mcp_images_preserve_base64_once_and_keep_payload_out_of_text() {
+    let result = image_result(TEST_PNG.as_bytes(), "image/png");
+    let images = result_images(&result);
+    assert_eq!(images.len(), 1);
+    assert_eq!(images[0].data, TEST_PNG);
+    let serialized = serialize_result(&result).unwrap().to_string();
+    assert!(!serialized.contains(TEST_PNG));
+    assert!(serialized.contains("image/png"));
+}
+
+#[test]
+fn mcp_images_reject_invalid_or_oversized_payloads() {
+    for (data, mime) in [
+        (b"invalid".as_slice(), "image/png"),
+        (TEST_PNG.as_bytes(), "text/plain"),
+        (b"".as_slice(), "image/png"),
+    ] {
+        assert!(result_images(&image_result(data, mime)).is_empty());
+    }
+    assert!(result_images(&image_result(
+        &vec![b'A'; MAX_IMAGE_BASE64_BYTES + 1],
+        "image/png"
+    ))
+    .is_empty());
 }

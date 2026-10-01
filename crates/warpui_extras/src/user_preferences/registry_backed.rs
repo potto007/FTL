@@ -22,13 +22,18 @@ pub struct RegistryBackedPreferences {
     cached_key: Mutex<Option<Key>>,
 }
 
-static WARP_REGISTRY_BASE_PATH: &str = "Software\\Zap\\";
 pub const KEY_NOT_FOUND_ERR: HRESULT = HRESULT::from_win32(0x80070002);
 
 impl RegistryBackedPreferences {
     /// Construct a separate registry path for each channel (stable, dev, local, etc.)
     pub fn new(app_name: &str) -> Self {
-        let app_key_path = WARP_REGISTRY_BASE_PATH.to_owned() + app_name;
+        // 兼容资料继续使用旧注册表；新 FTL 安装写入独立命名空间。
+        let base_path = if app_name.starts_with("FTL") {
+            "Software\\FTL\\"
+        } else {
+            "Software\\Zap\\"
+        };
+        let app_key_path = base_path.to_owned() + app_name;
         // 启动时就预热 Key,让第一次 setting 读取也避开同步系统调用。
         // 预热失败不为错:`with_warp_registry` 会在需要时重试。
         let initial_key = CURRENT_USER

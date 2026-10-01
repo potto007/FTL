@@ -1,3 +1,7 @@
+#[cfg(unix)]
+use super::super::search_command_test_util::assert_bash_arguments;
+#[cfg(windows)]
+use super::super::search_command_test_util::assert_powershell_arguments;
 use super::*;
 use crate::terminal::{model::secrets::regexes::FIREBASE_AUTH_DOMAIN, shell::ShellType};
 
@@ -70,4 +74,95 @@ fn test_create_redacted_grep_error_event() {
     } else {
         panic!("Expected GrepToolFailed event");
     }
+}
+
+#[test]
+fn build_git_grep_command_single_quotes_shell_substitution() {
+    let queries = vec!["$(touch /tmp/warp-poc); `id`".to_string()];
+
+    let command = build_git_grep_command(&queries, "/tmp/repo path", ShellType::Bash);
+
+    assert_eq!(
+        command,
+        "git --no-pager grep --color=never --untracked -nIE -e '$(touch /tmp/warp-poc); `id`' '/tmp/repo path'"
+    );
+}
+
+#[test]
+fn build_grep_command_escapes_single_quotes() {
+    let queries = vec!["owner's code".to_string()];
+
+    let command = build_grep_command(&queries, "/tmp/repo", ShellType::Bash);
+
+    assert_eq!(
+        command,
+        r#"grep --color=never -nrIHE --devices=skip -e 'owner'"'"'s code' '/tmp/repo'"#
+    );
+}
+
+#[test]
+fn build_select_string_command_single_quotes_powershell_substitution() {
+    let queries = vec![r#"$(New-Item C:\pwn); 'literal'"#.to_string()];
+
+    let command = build_select_string_command(&queries, r#"C:\repo path"#);
+
+    assert_eq!(
+        command,
+        r#"Get-ChildItem -Path 'C:\repo path' -Recurse -File | Select-String -NoEmphasis -CaseSensitive -Pattern '$(New-Item C:\pwn); ''literal'''"#
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn grep_commands_keep_hostile_arguments_literal_in_bash() {
+    let queries = vec![
+        "$(: > injection-marker)".to_string(),
+        "`: > injection-marker`".to_string(),
+        "'; : > injection-marker; #".to_string(),
+        "\"; : > injection-marker; #".to_string(),
+        "line one\nline two\\".to_string(),
+        "".to_string(),
+    ];
+    let path = "/repo $(: > injection-marker)/owner's";
+    for (built, mut expected) in [
+        (
+            build_git_grep_command(&queries, path, ShellType::Bash),
+            vec!["--no-pager", "grep", "--color=never", "--untracked", "-nIE"],
+        ),
+        (
+            build_grep_command(&queries, path, ShellType::Bash),
+            vec!["--color=never", "-nrIHE", "--devices=skip"],
+        ),
+    ] {
+        for query in &queries {
+            expected.extend(["-e", query.as_str()]);
+        }
+        expected.push(path);
+        assert_bash_arguments(&built, &expected);
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn grep_commands_keep_hostile_arguments_literal_in_powershell() {
+    let queries = vec![
+        "$(New-Item injection-marker)".to_string(),
+        "'; New-Item injection-marker; #".to_string(),
+        "\"; New-Item injection-marker; #".to_string(),
+        "line one\nline two`".to_string(),
+        "".to_string(),
+    ];
+    let path = "C:\\repo $(New-Item injection-marker)\\owner's";
+    let mut expected = vec!["--no-pager", "grep", "--color=never", "--untracked", "-nIE"];
+    for query in &queries {
+        expected.extend(["-e", query.as_str()]);
+    }
+    expected.push(path);
+    assert_powershell_arguments(
+        &build_git_grep_command(&queries, path, ShellType::PowerShell),
+        &expected,
+    );
+    let mut expected = vec![path];
+    expected.extend(queries.iter().map(String::as_str));
+    assert_powershell_arguments(&build_select_string_command(&queries, path), &expected);
 }

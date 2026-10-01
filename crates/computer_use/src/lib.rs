@@ -147,6 +147,11 @@ impl ScreenshotRegion {
                 self.top_left.y()
             ));
         }
+        self.validate_signed()
+    }
+
+    /// Windows 虚拟桌面允许负原点，同时拒绝空区域和尺寸溢出。
+    pub fn validate_signed(&self) -> Result<(), String> {
         if self.bottom_right.x() <= self.top_left.x() {
             return Err(format!(
                 "Screenshot region must have positive width (bottom_right.x {} must be > top_left.x {})",
@@ -160,6 +165,19 @@ impl ScreenshotRegion {
                 self.bottom_right.y(),
                 self.top_left.y()
             ));
+        }
+        if self
+            .bottom_right
+            .x()
+            .checked_sub(self.top_left.x())
+            .is_none()
+            || self
+                .bottom_right
+                .y()
+                .checked_sub(self.top_left.y())
+                .is_none()
+        {
+            return Err("Screenshot region dimensions exceed signed pixel limits".to_owned());
         }
         Ok(())
     }
@@ -255,3 +273,7 @@ impl From<Vector2IDef> for Vector2I {
         Vector2I::new(def.x, def.y)
     }
 }
+
+#[cfg(test)]
+#[path = "lib_tests.rs"]
+mod tests;

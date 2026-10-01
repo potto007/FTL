@@ -769,6 +769,7 @@ fn extra_headers_skip_when_empty() {
         base_url: "https://api.example.com/v1".to_string(),
         models: Vec::new(),
         extra_headers: Vec::new(),
+        tool_image_destination: None,
     };
     let serialized = toml::to_string(&provider).expect("should serialize");
     assert!(
@@ -787,4 +788,18 @@ fn extra_headers_round_trip() {
     let serialized = toml::to_string(&provider).expect("should serialize");
     let deserialized: AgentProvider = toml::from_str(&serialized).expect("should deserialize");
     assert_eq!(provider.extra_headers, deserialized.extra_headers);
+}
+
+#[test]
+fn tool_image_permission_requires_explicit_model_and_matching_destination() {
+    let mut provider = AgentProvider::new_empty();
+    provider.base_url = "http://127.0.0.1:8080/v1".into();
+    provider.models = vec![AgentProviderModel::from_id("local-vision".into())];
+    assert!(!provider.allows_tool_images("local-vision"));
+    provider.tool_image_destination = Some(provider.base_url.clone());
+    assert!(!provider.allows_tool_images("local-vision"));
+    provider.models[0].image = Some(true);
+    assert!(provider.allows_tool_images("local-vision"));
+    provider.base_url = "https://different.example/v1".into();
+    assert!(!provider.allows_tool_images("local-vision"));
 }

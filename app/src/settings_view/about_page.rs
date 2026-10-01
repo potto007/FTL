@@ -140,7 +140,7 @@ impl SettingsWidget for AboutPageWidget {
     ) -> Box<dyn Element> {
         let ui_builder = appearance.ui_builder();
 
-        // 始终用纯图标 logo,品牌名以独立文本 "Zap" 呈现,不再依赖带 "warp" 字样的 svg
+        // 始终用纯图标 logo,品牌名以独立文本 "FTL" 呈现,不再依赖带 "warp" 字样的 svg
         let image_path = "bundled/svg/warp-logo-light.svg";
 
         // GIT_RELEASE_TAG 注入 → 显示 tag;否则进入 Dev 开发模式
@@ -188,7 +188,7 @@ impl SettingsWidget for AboutPageWidget {
             )
             .with_child(
                 ui_builder
-                    .span("Zap")
+                    .span("FTL")
                     .build()
                     .with_margin_top(12.)
                     .finish(),
@@ -350,7 +350,7 @@ impl AboutPageWidget {
                 let url = github::cached_release()
                     .map(|r| r.html_url)
                     .unwrap_or_else(|| {
-                        "https://github.com/zerx-lab/warp/releases/latest".to_owned()
+                        "https://github.com/potto007/FTL/releases/latest".to_owned()
                     });
                 (text, UpdateAction::OpenReleasePage(url))
             }

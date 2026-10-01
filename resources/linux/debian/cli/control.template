@@ -4,10 +4,10 @@ Section: devel
 Depends: zlib1g
 Priority: optional
 Architecture: @@ARCH@@
-Maintainer: Zap Maintainers <zap-maintainers@localhost>
-Homepage: https://github.com/zerx-lab/warp
+Maintainer: FTL Maintainers <ftl-maintainers@localhost>
+Homepage: https://github.com/potto007/FTL
 Replaces: warp-cli (<< @@VERSION@@)
 Conflicts: warp-cli (<< @@VERSION@@)
-Description: Zap CLI — community fork of Warp's local orchestration platform
- Zap CLI is a tool for running, managing, and orchestrating coding agents
- locally. It is the CLI half of the Zap community fork of Warp.
+Description: FTL CLI — community fork of Warp's local orchestration platform
+ FTL CLI is a tool for running, managing, and orchestrating coding agents
+ locally. It is the CLI half of the FTL community fork of Warp.

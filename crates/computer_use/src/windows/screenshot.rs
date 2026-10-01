@@ -24,14 +24,7 @@ use crate::{Screenshot, ScreenshotParams};
 ///
 /// On multi-monitor setups the virtual screen spans every display and its origin may be at
 /// negative coordinates (e.g., if a secondary monitor is positioned left of the primary).
-/// `ScreenshotRegion::validate` currently requires non-negative region coordinates, so callers
-/// cannot reach areas with negative virtual-screen coordinates via region captures; those areas
-/// are still included in the full-screen capture.
-///
-/// TODO: relax the non-negative check in `ScreenshotRegion::validate`
-/// (`crates/computer_use/src/lib.rs`) so the region path can reach monitors positioned above /
-/// left of the primary. The Win32 side of this module already supports negative coordinates; the
-/// restriction is shared across Mac / Linux / Windows, so this is a platform-neutral follow-up.
+/// Windows 区域使用有符号物理坐标，因此也可以选取主显示器左侧或上方的显示器。
 pub fn take(params: ScreenshotParams) -> Result<Screenshot, String> {
     // Opt this thread into per-monitor-v2 DPI awareness so the virtual-screen metrics and `BitBlt`
     // all operate in physical pixels, regardless of the host process manifest. Dropped at end of
@@ -55,13 +48,10 @@ pub fn take(params: ScreenshotParams) -> Result<Screenshot, String> {
     // matching `SetCursorPos` (pixel coordinates for DPI-aware processes, logical coordinates
     // otherwise).
     let (src_x, src_y, width, height) = if let Some(region) = params.region {
-        region.validate()?;
+        region.validate_signed()?;
         let w = region.bottom_right.x() - region.top_left.x();
         let h = region.bottom_right.y() - region.top_left.y();
-        // Validate against both ends of the virtual screen. `ScreenshotRegion::validate` only
-        // enforces `top_left >= 0`, which can't catch the uncommon case where the virtual-screen
-        // origin itself is positive (e.g., primary monitor repositioned) — without the explicit
-        // `< virt_x/virt_y` check, `BitBlt` would silently sample pixels off the virtual screen.
+        // 同时检查虚拟桌面的两端，防止读取显示区域之外的像素。
         if region.top_left.x() < virt_x
             || region.top_left.y() < virt_y
             || region.bottom_right.x() > max_x
