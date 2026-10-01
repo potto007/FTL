@@ -271,43 +271,128 @@ fn test_should_add_command_to_history() {
     }
 }
 
-/// Runs `script` with `pwsh`, returning its stdout lines, or `None` if `pwsh` isn't installed.
-// `command::blocking::Command` spawns with `CREATE_BREAKAWAY_FROM_JOB`, which fails with "Access
-// is denied" when the test runner sits in a job that disallows breakaway.
-#[allow(clippy::disallowed_types)]
-fn run_pwsh(script: &str) -> Option<Vec<String>> {
-    let output = match std::process::Command::new("pwsh")
-        .args(["-NoProfile", "-NonInteractive", "-Command", script])
-        .output()
-    {
-        Ok(output) => output,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            eprintln!("skipping: pwsh is not installed");
-            return None;
-        }
-        Err(err) => panic!("failed to run pwsh: {err}"),
+#[test]
+fn powershell_script_block_preserving_status_shape() {
+    assert_eq!(
+        powershell_script_block_preserving_status(PowerShellBlockInvocation::Call, "git log"),
+        "& { [CmdletBinding()] param() git log; if (-not $?) { & { $ErrorActionPreference = 'Ignore'; $PSCmdlet.WriteError([Management.Automation.ErrorRecord]::new([Exception]::new('exit status'), 'ExitStatus', 0, $null)) } } }"
+    );
+    // PowerShell echoes continuation lines into the block output, so the wrapper must not add any.
+    let wrapped =
+        powershell_script_block_preserving_status(PowerShellBlockInvocation::DotSource, "a\nb");
+    assert!(wrapped.starts_with(". { [CmdletBinding()] param() a\nb; "));
+    assert_eq!(wrapped.matches('\n').count(), 1);
+}
+
+/// Runs `script` in PowerShell and returns its stdout, or `None` if no PowerShell is installed.
+fn run_powershell_script(script: &str) -> Option<String> {
+    let path = std::env::temp_dir().join(format!(
+        "warp_terminal_pwsh_status_{}_{:?}.ps1",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    std::fs::write(&path, script).expect("can write temp script");
+    let candidates: &[&str] = if cfg!(windows) {
+        &["pwsh", "powershell"]
+    } else {
+        &["pwsh"]
     };
+    let output = candidates.iter().find_map(|shell| {
+        std::process::Command::new(shell)
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+            ])
+            .arg(&path)
+            .output()
+            .ok()
+    });
+    let _ = std::fs::remove_file(&path);
+    let output = output?;
     assert!(
         output.status.success(),
-        "pwsh failed: {}",
+        "PowerShell failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    Some(
-        String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .map(str::to_owned)
-            .collect(),
-    )
+    Some(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"))
+}
+
+/// Regression test: the agent wraps PowerShell commands in script blocks (to unset pagers, and to
+/// keep multi-line commands in one block). Plain script blocks reset `$?` to `$true`, which made the
+/// precmd hook report exit code 0 for failing native commands.
+#[test]
+fn powershell_script_block_preserving_status_reports_native_failures() {
+    use PowerShellBlockInvocation::{Call, DotSource};
+
+    // A native command that exits with code 3 on every platform: this PowerShell itself.
+    let fail = "& ([System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName) -NoProfile -NonInteractive -Command 'exit 3'";
+    let succeed = "& ([System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName) -NoProfile -NonInteractive -Command 'exit 0'";
+    let cases = [
+        // Sanity check of the underlying PowerShell behavior this guards against.
+        (format!("& {{ {fail} }}"), "True 3 0 Continue"),
+        (
+            powershell_script_block_preserving_status(Call, fail),
+            "False 3 0 Continue",
+        ),
+        (
+            powershell_script_block_preserving_status(DotSource, fail),
+            "False 3 0 Continue",
+        ),
+        (
+            powershell_script_block_preserving_status(Call, &format!("{fail};")),
+            "False 3 0 Continue",
+        ),
+        (
+            powershell_script_block_preserving_status(Call, &format!("{succeed}\n{fail}")),
+            "False 3 0 Continue",
+        ),
+        (
+            powershell_script_block_preserving_status(Call, &format!("{fail}\n{succeed}")),
+            "True 0 0 Continue",
+        ),
+        // A failing cmdlet records its own error and leaves $LASTEXITCODE untouched.
+        (
+            powershell_script_block_preserving_status(
+                Call,
+                "Get-Item -LiteralPath ./does-not-exist 2>$null",
+            ),
+            "False 0 1 Continue",
+        ),
+        // How a multi-line agent command with the pager wrapper ends up being run.
+        (
+            powershell_script_block_preserving_status(
+                DotSource,
+                &powershell_script_block_preserving_status(Call, &format!("$x = 1\n{fail}")),
+            ),
+            "False 3 0 Continue",
+        ),
+    ];
+
+    let mut script = String::new();
+    for (wrapped, _) in &cases {
+        script.push_str(&format!(
+            "$global:LASTEXITCODE = 0; $Error.Clear()\n{wrapped}\n\"$? $global:LASTEXITCODE $($Error.Count) $ErrorActionPreference\"\n"
+        ));
+    }
+    let Some(stdout) = run_powershell_script(&script) else {
+        eprintln!("PowerShell is not installed; skipping");
+        return;
+    };
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(lines.len(), cases.len(), "unexpected output:\n{stdout}");
+    for ((wrapped, expected), line) in cases.iter().zip(lines) {
+        assert_eq!(line, *expected, "for:\n{wrapped}");
+    }
 }
 
 #[test]
 fn test_powershell_command_with_env_preserves_status_and_restores_env() {
+    // A native command that exits with `code` on every platform: this PowerShell itself.
     let exit_with = |code: u8| {
-        if cfg!(windows) {
-            format!("cmd /c exit {code}")
-        } else {
-            format!("sh -c 'exit {code}'")
-        }
+        format!("& ([System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName) -NoProfile -NonInteractive -Command 'exit {code}'")
     };
     let vars = [
         ("PAGER", "cat"),
@@ -340,11 +425,12 @@ fn test_powershell_command_with_env_preserves_status_and_restores_env() {
     ]
     .join("\n");
 
-    let Some(lines) = run_pwsh(&script) else {
+    let Some(stdout) = run_powershell_script(&script) else {
+        eprintln!("PowerShell is not installed; skipping");
         return;
     };
     assert_eq!(
-        lines,
+        stdout.lines().collect::<Vec<_>>(),
         [
             "inner=cat|cat|it's",
             "status=False code=3",

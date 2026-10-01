@@ -254,6 +254,64 @@ pub enum ShellType {
     PowerShell,
 }
 
+/// How an immediately invoked PowerShell script block is run.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum PowerShellBlockInvocation {
+    /// `& { ... }`: runs the block in a child scope.
+    Call,
+    /// `. { ... }`: runs the block in the caller's scope.
+    DotSource,
+}
+
+/// Wraps `body` in an immediately invoked PowerShell script block whose success status (`$?`)
+/// matches the status of the last statement in `body`.
+///
+/// Invoking a plain script block (`& { cmd /c exit 3 }`) always leaves `$?` as `$true`, even though
+/// `$LASTEXITCODE` is 3. The PowerShell precmd hook in the bootstrap script reports exit code 0
+/// whenever `$?` is `$true`, so a plain wrapper hides failing native commands. Here the block is an
+/// advanced script block instead and, if its last statement failed, it writes an ignored error
+/// through its own `$PSCmdlet`. That makes `$?` `$false` for the wrapper without printing anything,
+/// adding to `$Error`, or touching `$LASTEXITCODE`, so the precmd hook reports the real exit code.
+///
+/// `$ErrorActionPreference` is set in a child scope (rather than passing `-ErrorAction Ignore` to
+/// the wrapper) so that errors written by `body` itself are still displayed, and so that a
+/// dot-sourced wrapper does not change the caller's preference.
+///
+/// The wrapper adds no line breaks: PowerShell echoes every continuation line of a multi-line
+/// input into the block's output, so a single-line `body` must stay a single line. As with any
+/// one-line wrapper, a trailing `#` comment in `body` would comment out the rest of the wrapper.
+pub fn powershell_script_block_preserving_status(
+    invocation: PowerShellBlockInvocation,
+    body: &str,
+) -> String {
+    powershell_script_block_preserving_status_with_finally(invocation, body, None)
+}
+
+/// Like [`powershell_script_block_preserving_status`], but when `finally` is given it runs after
+/// `body` even if `body` throws or is interrupted. `$?` still reflects `body`'s last statement, and
+/// `$LASTEXITCODE` passes through as long as `finally` doesn't run native commands.
+fn powershell_script_block_preserving_status_with_finally(
+    invocation: PowerShellBlockInvocation,
+    body: &str,
+    finally: Option<&str>,
+) -> String {
+    let operator = match invocation {
+        PowerShellBlockInvocation::Call => "&",
+        PowerShellBlockInvocation::DotSource => ".",
+    };
+    // `$?` after a try/finally reflects the last statement of `finally`, so record it beforehand.
+    let (body, status) = match finally {
+        None => (body.to_owned(), "$?"),
+        Some(finally) => (
+            format!("try {{ {body}; $__ftlStatus = $? }} finally {{ {finally} }}"),
+            "$__ftlStatus",
+        ),
+    };
+    format!(
+        "{operator} {{ [CmdletBinding()] param() {body}; if (-not {status}) {{ & {{ $ErrorActionPreference = 'Ignore'; $PSCmdlet.WriteError([Management.Automation.ErrorRecord]::new([Exception]::new('exit status'), 'ExitStatus', 0, $null)) }} }} }}"
+    )
+}
+
 impl From<ShellType> for command_corrections::Shell {
     fn from(s: ShellType) -> command_corrections::Shell {
         match s {
@@ -891,27 +949,6 @@ impl From<ShellLaunchData> for SessionPlatform {
     }
 }
 
-/// Wraps `body` in a single-line PowerShell script block that runs `finally` afterwards (even if
-/// `body` throws or is interrupted) and leaves the caller's `$?` reflecting `body`'s last
-/// statement.
-///
-/// A plain `& { ... }` always leaves `$?` as `$true` for the caller, even when its last statement
-/// failed (e.g. a native command exiting non-zero), so the precmd hook would report the command
-/// as successful. Making the block an advanced script block lets it surface the failure through
-/// `$PSCmdlet.WriteError`, which sets the caller's `$?` to `$false`. The record is written with
-/// `ErrorAction` `Ignore`, so it is neither displayed nor added to `$Error`. `$LASTEXITCODE` is
-/// global and passes through untouched as long as `finally` doesn't run native commands.
-///
-/// The result is a single line, so `body` must not end in a `#` comment.
-pub fn powershell_script_block_preserving_status(body: &str, finally: &str) -> String {
-    format!(
-        "& {{ [CmdletBinding()] param() try {{ {body}; $__ftlStatus = $? }} finally {{ {finally} }}; \
-         if (-not $__ftlStatus) {{ $ErrorActionPreference = 'Ignore'; \
-         $PSCmdlet.WriteError([System.Management.Automation.ErrorRecord]::new(\
-         [Exception]::new('command failed'), 'FtlCommandFailed', 'NotSpecified', $null)) }} }}"
-    )
-}
-
 /// Wraps `command` so that it runs in PowerShell with the environment variables in `vars`
 /// overridden, preserving the command's `$?` and `$LASTEXITCODE`.
 ///
@@ -944,7 +981,11 @@ pub fn powershell_command_with_env(vars: &[(&str, &str)], command: &str) -> Stri
                    if ($null -eq $__ftlEntry.Value) { \
                    Remove-Item -LiteralPath \"Env:$($__ftlEntry.Key)\" -ErrorAction Ignore } \
                    else { [Environment]::SetEnvironmentVariable($__ftlEntry.Key, $__ftlEntry.Value) } }";
-    powershell_script_block_preserving_status(&body, finally)
+    powershell_script_block_preserving_status_with_finally(
+        PowerShellBlockInvocation::Call,
+        &body,
+        Some(finally),
+    )
 }
 
 /// Quotes `s` as a PowerShell single-quoted string literal. PowerShell also treats the Unicode
