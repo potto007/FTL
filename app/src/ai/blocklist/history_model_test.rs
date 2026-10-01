@@ -3,14 +3,17 @@ use std::time::Duration;
 
 use chrono::{DateTime, Local, TimeZone, Utc};
 use itertools::Itertools;
-use warpui::{App, EntityId};
+use warp_core::execution_mode::ExecutionMode;
+use warpui::{App, EntityId, ModelHandle, SingletonEntity};
 
 use crate::{
     ai::{
         agent::{
-            api::ServerConversationToken, conversation::AIConversationId, AIAgentExchange,
-            AIAgentExchangeId, AIAgentInput, AIAgentOutputStatus, FinishedAIAgentOutput, Shared,
-            UserQueryMode,
+            api::ServerConversationToken,
+            conversation::{AIConversationId, UpdateConversationError},
+            task::TaskId,
+            AIAgentExchange, AIAgentExchangeId, AIAgentInput, AIAgentOutputStatus,
+            FinishedAIAgentOutput, Shared, UserQueryMode,
         },
         ambient_agents::AmbientAgentTaskId,
         blocklist::{controller::RequestInput, ResponseStreamId},
@@ -25,15 +28,17 @@ use crate::{
         },
         ModelEvent,
     },
-    terminal::model::session::SessionId,
-    test_util::settings::initialize_settings_for_tests,
+    terminal::{general_settings::GeneralSettings, model::session::SessionId},
+    test_util::settings::{initialize_settings_for_tests, initialize_settings_for_tests_with_mode},
     GlobalResourceHandles, GlobalResourceHandlesProvider,
 };
+use settings::Setting as _;
 use warp_multi_agent_api as api;
 
 use super::{
     convert_persisted_conversation_to_ai_conversation_with_metadata, AIConversationMetadata,
     AIQueryHistoryOutputStatus, BlocklistAIHistoryModel, PersistedAIInput, PersistedAIInputType,
+    UpdateHistoryError,
 };
 
 fn initialize_history_model_test_app(app: &mut App) {
@@ -1421,4 +1426,250 @@ fn test_set_server_conversation_token_rebinds_reverse_index() {
             );
         });
     });
+}
+
+/// Starts a conversation whose root task exists (via a user query) and returns its IDs.
+fn start_conversation_with_root_task(
+    app: &mut App,
+    history_model: &ModelHandle<BlocklistAIHistoryModel>,
+) -> (AIConversationId, TaskId) {
+    let terminal_view_id = EntityId::new();
+    history_model.update(app, |history_model, ctx| {
+        let conversation_id =
+            history_model.start_new_conversation(terminal_view_id, false, false, ctx);
+        let task_id = history_model
+            .conversation(&conversation_id)
+            .unwrap()
+            .get_root_task_id()
+            .clone();
+        let exchange = create_exchange_with_query("query", Local::now(), None);
+        let request_input = RequestInput {
+            conversation_id,
+            input_messages: std::collections::HashMap::from([(task_id.clone(), exchange.input)]),
+            working_directory: exchange.working_directory,
+            model_id: exchange.model_id,
+            coding_model_id: exchange.coding_model_id,
+            cli_agent_model_id: exchange.cli_agent_model_id,
+            computer_use_model_id: exchange.computer_use_model_id,
+            shared_session_response_initiator: exchange.response_initiator,
+            request_start_ts: exchange.start_time,
+            supported_tools_override: None,
+        };
+        let stream_id = ResponseStreamId::new_for_test();
+        history_model
+            .update_conversation_for_new_request_input(
+                request_input,
+                stream_id.clone(),
+                terminal_view_id,
+                ctx,
+            )
+            .unwrap();
+        // The root task stays optimistic until the response creates it (as the BYOP stream
+        // does), and preflight messages can only be appended to an initialized task.
+        let create_root_task = api::ClientAction {
+            action: Some(api::client_action::Action::CreateTask(
+                api::client_action::CreateTask {
+                    task: Some(api::Task {
+                        id: "root-task".to_owned(),
+                        ..Default::default()
+                    }),
+                },
+            )),
+        };
+        history_model
+            .apply_client_actions(
+                &stream_id,
+                vec![create_root_task],
+                conversation_id,
+                terminal_view_id,
+                ctx,
+            )
+            .unwrap();
+        let task_id = history_model
+            .conversation(&conversation_id)
+            .unwrap()
+            .get_root_task_id()
+            .clone();
+        (conversation_id, task_id)
+    })
+}
+
+const PREFLIGHT_MESSAGE_ID: &str = "preflight-tool-result";
+
+fn append_preflight_tool_result(
+    app: &mut App,
+    history_model: &ModelHandle<BlocklistAIHistoryModel>,
+    conversation_id: AIConversationId,
+    task_id: &TaskId,
+) -> Result<usize, UpdateHistoryError> {
+    let message = api::Message {
+        id: PREFLIGHT_MESSAGE_ID.to_owned(),
+        task_id: task_id.to_string(),
+        message: Some(api::message::Message::ToolCallResult(
+            api::message::ToolCallResult {
+                tool_call_id: "call_1".to_owned(),
+                ..Default::default()
+            },
+        )),
+        ..Default::default()
+    };
+    history_model.update(app, |history_model, ctx| {
+        history_model.append_byop_preflight_messages_to_task(
+            conversation_id,
+            task_id.clone(),
+            vec![message],
+            ctx,
+        )
+    })
+}
+
+fn has_preflight_tool_result(
+    app: &App,
+    history_model: &ModelHandle<BlocklistAIHistoryModel>,
+    conversation_id: AIConversationId,
+) -> bool {
+    history_model.read(app, |history_model, _| {
+        history_model
+            .conversation(&conversation_id)
+            .unwrap()
+            .all_tasks()
+            .any(|task| task.messages().any(|msg| msg.id == PREFLIGHT_MESSAGE_ID))
+    })
+}
+
+/// Installs global resource handles whose SQLite sender feeds the returned receiver.
+fn install_sqlite_receiver(app: &mut App) -> std::sync::mpsc::Receiver<ModelEvent> {
+    let (sender, receiver) = std::sync::mpsc::sync_channel(16);
+    let mut global_resource_handles = GlobalResourceHandles::mock(app);
+    global_resource_handles.model_event_sender = Some(sender);
+    app.add_singleton_model(|_| GlobalResourceHandlesProvider::new(global_resource_handles));
+    receiver
+}
+
+/// Regression: `ftl agent run` (SDK execution mode) never saves sessions, so BYOP preflight
+/// rejected every tool-result commit and the follow-up request after a tool call was never sent,
+/// leaving the run idle forever.
+#[test]
+fn test_byop_preflight_commits_in_memory_when_execution_mode_cannot_save_sessions() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests_with_mode(&mut app, ExecutionMode::Sdk, false);
+        let receiver = install_sqlite_receiver(&mut app);
+        let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
+        let (conversation_id, task_id) =
+            start_conversation_with_root_task(&mut app, &history_model);
+
+        let appended =
+            append_preflight_tool_result(&mut app, &history_model, conversation_id, &task_id);
+
+        assert_eq!(appended.unwrap(), 1);
+        assert!(has_preflight_tool_result(
+            &app,
+            &history_model,
+            conversation_id
+        ));
+        assert!(
+            receiver.try_recv().is_err(),
+            "SDK mode must not write conversations to SQLite"
+        );
+    });
+}
+
+#[test]
+fn test_byop_preflight_commits_in_memory_when_conversation_persistence_is_disabled() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        let receiver = install_sqlite_receiver(&mut app);
+        app.update(|ctx| {
+            GeneralSettings::handle(ctx).update(ctx, |settings, ctx| {
+                settings
+                    .persist_conversations
+                    .set_value(false, ctx)
+                    .unwrap();
+            });
+        });
+        let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
+        let (conversation_id, task_id) =
+            start_conversation_with_root_task(&mut app, &history_model);
+
+        let appended =
+            append_preflight_tool_result(&mut app, &history_model, conversation_id, &task_id);
+
+        assert_eq!(appended.unwrap(), 1);
+        assert!(has_preflight_tool_result(
+            &app,
+            &history_model,
+            conversation_id
+        ));
+        assert!(receiver.try_recv().is_err());
+    });
+}
+
+/// When conversations should be persisted but SQLite is unavailable, preflight must still refuse
+/// to continue with in-memory-only tool results.
+#[test]
+fn test_byop_preflight_blocks_when_expected_persistence_is_unavailable() {
+    App::test((), |mut app| async move {
+        initialize_history_model_test_app(&mut app);
+        let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
+        let (conversation_id, task_id) =
+            start_conversation_with_root_task(&mut app, &history_model);
+
+        let appended =
+            append_preflight_tool_result(&mut app, &history_model, conversation_id, &task_id);
+
+        assert!(matches!(
+            appended,
+            Err(UpdateHistoryError::Conversation(
+                UpdateConversationError::ByopPreflightPersistenceUnavailable(_)
+            ))
+        ));
+        assert!(!has_preflight_tool_result(
+            &app,
+            &history_model,
+            conversation_id
+        ));
+    });
+}
+
+#[test]
+fn test_byop_preflight_persists_when_sessions_are_saved() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        let receiver = install_sqlite_receiver(&mut app);
+        let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
+        let (conversation_id, task_id) =
+            start_conversation_with_root_task(&mut app, &history_model);
+        while receiver.try_recv().is_ok() {}
+
+        let appended =
+            append_preflight_tool_result(&mut app, &history_model, conversation_id, &task_id);
+
+        assert_eq!(appended.unwrap(), 1);
+        assert!(has_preflight_tool_result(
+            &app,
+            &history_model,
+            conversation_id
+        ));
+        assert!(matches!(
+            receiver.try_recv(),
+            Ok(ModelEvent::UpdateMultiAgentConversation { .. })
+        ));
+    });
+}
+
+#[test]
+fn test_byop_preflight_persistence_failure_sees_through_update_history_error() {
+    let unavailable =
+        || UpdateConversationError::ByopPreflightPersistenceUnavailable("sqlite sender".to_owned());
+
+    let bare = anyhow::Error::from(unavailable());
+    assert!(super::byop_preflight_persistence_failure(&bare).is_some());
+
+    let wrapped = anyhow::Error::from(UpdateHistoryError::Conversation(unavailable()));
+    assert!(super::byop_preflight_persistence_failure(&wrapped).is_some());
+
+    let unrelated = anyhow::Error::from(UpdateHistoryError::Conversation(
+        UpdateConversationError::TaskNotFound,
+    ));
+    assert!(super::byop_preflight_persistence_failure(&unrelated).is_none());
 }

@@ -1499,14 +1499,23 @@ impl BlocklistAIController {
             ctx,
         );
 
-        let _ = self.send_request_input(
+        if let Err(e) = self.send_request_input(
             request_input,
             None,
             /*default_to_follow_up_on_success*/ false,
             /*can_attempt_resume_on_error*/ true,
             /*is_queued_prompt*/ false,
             ctx,
-        );
+        ) {
+            // A pending-tool-results error stashes the request for a later flush. Anything else
+            // means the action results never reached the model, so don't drop it silently.
+            if e.downcast_ref::<PendingByopToolResultsError>().is_none() {
+                log::error!(
+                    "Failed to send follow-up with action results for conversation \
+                     {conversation_id:?}: {e:#}"
+                );
+            }
+        }
 
         self.pending_passive_follow_ups.remove(&conversation_id);
     }
@@ -2962,34 +2971,27 @@ impl BlocklistAIController {
             // 或 channel 满)时,原本会作为通用 anyhow::Error 冒泡到调用方被 log::error! 静默吞掉,
             // 用户看不到任何反馈。这里把它也走 blocked request UI 路径,让用户能看到失败原因。
             if let Some(persistence_err) =
-                error.downcast_ref::<crate::ai::agent::conversation::UpdateConversationError>()
+                super::history_model::byop_preflight_persistence_failure(&error)
             {
-                if matches!(
-                    persistence_err,
-                    crate::ai::agent::conversation::UpdateConversationError::ByopPreflightPersistenceUnavailable(_)
-                    | crate::ai::agent::conversation::UpdateConversationError::ByopPreflightPersistenceSend(_)
-                ) {
-                    log::error!(
-                        "[byop-readiness] rendering blocked request due to persistence failure: \
-                         {persistence_err:?} conversation_id={} request_attempt_id={}",
-                        conversation_data.id,
-                        request_params
-                            .byop_readiness_attempt_id
-                            .as_deref()
-                            .unwrap_or("unknown")
-                    );
-                    return self.complete_byop_blocked_request(
-                        request_input,
-                        conversation_data.id,
-                        request_params.model.clone(),
-                        is_queued_prompt,
-                        "FTL couldn't save the BYOP conversation state needed to send this \
-                         request. Check that conversation persistence is enabled and that there \
-                         is enough disk space, then try again."
-                            .to_owned(),
-                        ctx,
-                    );
-                }
+                log::error!(
+                    "[byop-readiness] rendering blocked request due to persistence failure: \
+                     {persistence_err:?} conversation_id={} request_attempt_id={}",
+                    conversation_data.id,
+                    request_params
+                        .byop_readiness_attempt_id
+                        .as_deref()
+                        .unwrap_or("unknown")
+                );
+                return self.complete_byop_blocked_request(
+                    request_input,
+                    conversation_data.id,
+                    request_params.model.clone(),
+                    is_queued_prompt,
+                    "FTL couldn't save the BYOP conversation state needed to send this \
+                     request. Check that there is enough disk space, then try again."
+                        .to_owned(),
+                    ctx,
+                );
             }
             return Err(error);
         }
