@@ -1,0 +1,475 @@
+From b9778a826b8a3f65af9c709ff2a4e193a09516d8 Mon Sep 17 00:00:00 2001
+From: Paul Otto <paul.otto@forterra.com>
+Date: Wed, 30 Sep 2026 22:20:23 -0600
+Subject: [PATCH] feat: sampled DFlash verify for temperature > 0
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ dflash_mlx/engine/sampling.py        | 59 +++++++++++++++++++++++++++-
+ dflash_mlx/engine/spec_epoch.py      | 25 ++++++++++--
+ dflash_mlx/runtime/__init__.py       |  2 +
+ dflash_mlx/serve.py                  | 15 +++++--
+ dflash_mlx/server/config.py          | 10 +++++
+ dflash_mlx/server/runtime.py         | 15 +++++++
+ tests/test_sampling.py               | 53 +++++++++++++++++++++++++
+ tests/test_serve_state_machine.py    | 43 +++++++++++++++++++-
+ tests/test_server_sampling_params.py | 21 ++++++++++
+ 9 files changed, 234 insertions(+), 9 deletions(-)
+ create mode 100644 tests/test_server_sampling_params.py
+
+diff --git a/dflash_mlx/engine/sampling.py b/dflash_mlx/engine/sampling.py
+index 11bee79..66a307c 100644
+--- a/dflash_mlx/engine/sampling.py
++++ b/dflash_mlx/engine/sampling.py
+@@ -4,7 +4,8 @@
+ 
+ from __future__ import annotations
+ 
+-from typing import Any
++from dataclasses import dataclass
++from typing import Any, Callable
+ 
+ import mlx.core as mx
+ 
+@@ -55,6 +56,62 @@ def greedy_tokens_with_mask(
+     return mx.argmax(masked_logits, axis=-1).astype(mx.uint32)
+ 
+ 
++@dataclass(frozen=True)
++class SamplingParams:
++    """Request sampling knobs applied to target logits during verify.
++
++    Mirrors mlx-lm's ``make_sampler`` arguments so sampled DFlash draws from
++    the same filtered distribution as target-only AR.
++    """
++
++    temperature: float = 0.0
++    top_p: float = 1.0
++    top_k: int = 0
++    min_p: float = 0.0
++
++    @property
++    def is_greedy(self) -> bool:
++        return float(self.temperature) <= 0.0
++
++
++def make_target_sampler(
++    params: SamplingParams | None,
++) -> Callable[[mx.array], mx.array] | None:
++    """Return an mlx-lm sampler for ``params``, or None for greedy decoding."""
++    if params is None or params.is_greedy:
++        return None
++    from mlx_lm.sample_utils import make_sampler
++
++    return make_sampler(
++        temp=float(params.temperature),
++        top_p=float(params.top_p),
++        min_p=float(params.min_p),
++        top_k=int(params.top_k),
++    )
++
++
++def sample_tokens_with_mask(
++    logits: mx.array,
++    suppress_token_mask: mx.array | None,
++    sampler: Callable[[mx.array], mx.array] | None,
++) -> mx.array:
++    """Pick one token per row of ``logits``: argmax when ``sampler`` is None,
++    otherwise an independent draw per row from the sampler's distribution.
++
++    Verify then accepts the longest draft prefix that matches these tokens and
++    commits the token at the first mismatch, so the output follows the
++    target's sampling distribution exactly (same scheme as mlx-lm's
++    ``speculative_generate_step``).
++    """
++    if sampler is None:
++        return greedy_tokens_with_mask(logits, suppress_token_mask)
++    logits = logits.astype(mx.float32)
++    if suppress_token_mask is not None:
++        logits = mx.where(suppress_token_mask, mx.array(-float("inf"), mx.float32), logits)
++    logprobs = logits - mx.logsumexp(logits, axis=-1, keepdims=True)
++    return sampler(logprobs).astype(mx.uint32)
++
++
+ def masked_topk_arrays(
+     logits_2d: mx.array,
+     suppress_token_mask: mx.array | None,
+diff --git a/dflash_mlx/engine/spec_epoch.py b/dflash_mlx/engine/spec_epoch.py
+index 8bee35d..a0cb0ff 100644
+--- a/dflash_mlx/engine/spec_epoch.py
++++ b/dflash_mlx/engine/spec_epoch.py
+@@ -56,9 +56,12 @@ from dflash_mlx.engine.sampling import (
+     build_suppress_token_mask,
+     eval_logits_and_captured,
+     greedy_tokens_with_mask,
++    make_target_sampler,
+     masked_topk_arrays,
+     ns_to_us,
+     prepare_prompt_tokens,
++    sample_tokens_with_mask,
++    SamplingParams,
+ )
+ from dflash_mlx.engine.target_features import TargetFeatureStore
+ from dflash_mlx.engine.config import (
+@@ -138,6 +141,8 @@ class _SessionRequest:
+     # 0..prompt_len-1. When provided, prompt_tokens are a selected subset and each
+     # is RoPE'd at its original position.
+     prompt_token_positions: Optional[tuple[int, ...]] = None
++    # Non-greedy request sampling. None or temperature 0 keeps the argmax path.
++    sampling: Optional[SamplingParams] = None
+     prompt_array: mx.array = field(init=False, repr=False)
+     prompt_len: int = field(init=False)
+     stop_token_array: Optional[mx.array] = field(init=False, repr=False)
+@@ -158,6 +163,7 @@ class _SessionRequest:
+         publish_generation_snapshot: bool = True,
+         prefix_hit_kind: str = "miss",
+         prompt_token_positions: Optional[list[int]] = None,
++        sampling: Optional[SamplingParams] = None,
+     ) -> "_SessionRequest":
+         return cls(
+             prompt_tokens=tuple(int(token) for token in prompt_tokens),
+@@ -180,6 +186,7 @@ class _SessionRequest:
+                 if prompt_token_positions is not None
+                 else None
+             ),
++            sampling=sampling,
+         )
+ 
+     def __post_init__(self) -> None:
+@@ -1114,9 +1121,10 @@ class SpeculativeSession:
+             int(state.prefill_logits.shape[-1]),
+             suppress_token_ids,
+         )
+-        state.staged_first = greedy_tokens_with_mask(
++        state.staged_first = sample_tokens_with_mask(
+             state.prefill_logits[:, -1, :],
+             suppress_token_mask,
++            make_target_sampler(request.sampling),
+         ).reshape(-1)
+         prefill_tokens_restored = max(0, min(int(snap_prefix_len), int(prompt_len)))
+         prefill_tokens_computed = max(0, int(prompt_len) - prefill_tokens_restored)
+@@ -1936,7 +1944,13 @@ class SpeculativeSession:
+         prefill: _PrefillResult,
+         yield_pause: "_YieldPauseTracker",
+     ) -> Generator[EngineEvent, None, _DecodeResult]:
+-        if str(getattr(self.runtime_config, "verify_mode", "dflash")) == "ddtree":
++        sampled = request.sampling is not None and not request.sampling.is_greedy
++        if (
++            str(getattr(self.runtime_config, "verify_mode", "dflash")) == "ddtree"
++            and not sampled
++        ):
++            # DDTree's tree acceptance is argmax-only; sampled requests use the
++            # linear verify path below.
+             return (
+                 yield from self._run_ddtree_decode_events(
+                     request=request,
+@@ -1964,6 +1978,7 @@ class SpeculativeSession:
+         stop_token_array = request.stop_token_array
+         feature_store = prefill.feature_store
+         suppress_token_mask = prefill.suppress_token_mask
++        target_sampler = make_target_sampler(request.sampling)
+         supports_prefix_snapshot = prefill.supports_prefix_snapshot
+         collect_generation_snapshot_hidden = (
+             request.should_collect_generation_snapshot_hidden(supports_prefix_snapshot)
+@@ -2262,7 +2277,9 @@ class SpeculativeSession:
+                     yield_pause.done(_pre_yield)
+ 
+             acceptance_start_ns = time.perf_counter_ns() if profile_cycles else 0
+-            posterior = greedy_tokens_with_mask(verify_logits[0], suppress_token_mask)
++            posterior = sample_tokens_with_mask(
++                verify_logits[0], suppress_token_mask, target_sampler
++            )
+             if capture_logits:
+                 posterior_top2_ids_arr, posterior_top2_logprobs_arr = (
+                     masked_topk_arrays(
+@@ -2843,6 +2860,7 @@ def stream_dflash_generate_impl(
+     publish_generation_snapshot: bool = True,
+     prefix_hit_kind: str = "miss",
+     runtime_context: Any,
++    sampling: Optional[SamplingParams] = None,
+ ) -> Iterator[EngineEvent]:
+     target_capabilities = target_ops.capabilities_for(target_model)
+     supports_prefix_snapshot = bool(
+@@ -2904,6 +2922,7 @@ def stream_dflash_generate_impl(
+         publish_generation_snapshot=publish_generation_snapshot,
+         prefix_hit_kind=prefix_hit_kind,
+         prompt_token_positions=prompt_token_positions,
++        sampling=sampling,
+     )
+ 
+     session = SpeculativeSession.open(
+diff --git a/dflash_mlx/runtime/__init__.py b/dflash_mlx/runtime/__init__.py
+index 09e3f96..059fcb3 100644
+--- a/dflash_mlx/runtime/__init__.py
++++ b/dflash_mlx/runtime/__init__.py
+@@ -63,6 +63,7 @@ def stream_dflash_generate(
+     publish_generation_snapshot: bool = True,
+     prefix_hit_kind: str = "miss",
+     runtime_context: Any = None,
++    sampling: Any = None,
+ ) -> Iterator[EngineEvent]:
+     if runtime_context is None:
+         raise ValueError("runtime_context is required")
+@@ -100,6 +101,7 @@ def stream_dflash_generate(
+             publish_generation_snapshot=publish_generation_snapshot,
+             prefix_hit_kind=prefix_hit_kind,
+             runtime_context=runtime_context,
++            sampling=sampling,
+         )
+         prefix_snapshot = None
+         yield from inner
+diff --git a/dflash_mlx/serve.py b/dflash_mlx/serve.py
+index 3339f63..33a25dc 100644
+--- a/dflash_mlx/serve.py
++++ b/dflash_mlx/serve.py
+@@ -64,10 +64,14 @@ def _read_project_version() -> str:
+     return _DFLASH_VERSION
+ 
+ 
+-def _target_only_api_reason(args: object) -> str | None:
++def _target_only_api_reason(
++    args: object,
++    *,
++    sampled_dflash: bool = True,
++) -> str | None:
+     sampling = getattr(args, "sampling", None)
+     temperature = float(getattr(sampling, "temperature", 0.0) or 0.0)
+-    if temperature > 0.0:
++    if temperature > 0.0 and not sampled_dflash:
+         return f"temperature={temperature:g}"
+     if float(getattr(sampling, "xtc_probability", 0.0) or 0.0) > 0.0:
+         return "xtc_probability"
+@@ -211,7 +215,12 @@ class DFlashResponseGenerator(mlx_server.ResponseGenerator):
+             fastpath_max_tokens = int(
+                 getattr(self.model_provider.cli_args, "fastpath_max_tokens", 0) or 0
+             )
+-            target_only_reason = _target_only_api_reason(args)
++            target_only_reason = _target_only_api_reason(
++                args,
++                sampled_dflash=bool(
++                    getattr(self.model_provider.cli_args, "sampled_dflash", True)
++                ),
++            )
+             use_fastpath = (
+                 fastpath_max_tokens > 0 and args.max_tokens <= fastpath_max_tokens
+             )
+diff --git a/dflash_mlx/server/config.py b/dflash_mlx/server/config.py
+index c3ff5df..671caac 100644
+--- a/dflash_mlx/server/config.py
++++ b/dflash_mlx/server/config.py
+@@ -146,6 +146,16 @@ def build_parser() -> argparse.ArgumentParser:
+             "Default: 0 (disabled); set a positive value to enable."
+         ),
+     )
++    parser.add_argument(
++        "--sampled-dflash",
++        action=argparse.BooleanOptionalAction,
++        default=True,
++        help=(
++            "Run temperature/top-p/top-k/min-p requests through DFlash by "
++            "sampling the target at each verify position (lossless). "
++            "--no-sampled-dflash routes them to target-only AR instead."
++        ),
++    )
+     parser.add_argument(
+         "--chat-template-args",
+         type=json.loads,
+diff --git a/dflash_mlx/server/runtime.py b/dflash_mlx/server/runtime.py
+index 2176edd..b1edf40 100644
+--- a/dflash_mlx/server/runtime.py
++++ b/dflash_mlx/server/runtime.py
+@@ -15,6 +15,7 @@ import mlx.core as mx
+ import mlx_lm.server as mlx_server
+ 
+ from dflash_mlx.cache.manager import shutdown_runtime_cache_manager
++from dflash_mlx.engine.sampling import SamplingParams
+ from dflash_mlx.observability.writer import enabled as _bench_enabled
+ from dflash_mlx.runtime import get_stop_token_ids, stream_dflash_generate
+ from dflash_mlx.server.metrics import (
+@@ -175,6 +176,7 @@ class ServerRuntime:
+             publish_generation_snapshot=prefix_flow.publish_generation_snapshot,
+             prefix_hit_kind=prefix_flow.hit_kind,
+             runtime_context=runtime_context,
++            sampling=_sampling_params(args),
+         )
+         prefix_flow.snapshot = None
+         loop_result = consume_dflash_events(
+@@ -278,6 +280,19 @@ class ServerRuntime:
+                 self.shutdown()
+ 
+ 
++def _sampling_params(args: Any) -> SamplingParams | None:
++    sampling = getattr(args, "sampling", None)
++    if sampling is None:
++        return None
++    params = SamplingParams(
++        temperature=float(getattr(sampling, "temperature", 0.0) or 0.0),
++        top_p=float(getattr(sampling, "top_p", 1.0) or 0.0),
++        top_k=int(getattr(sampling, "top_k", 0) or 0),
++        min_p=float(getattr(sampling, "min_p", 0.0) or 0.0),
++    )
++    return None if params.is_greedy else params
++
++
+ def build_prompt_regime(args: Any, tokenizer: Any, request: Any = None) -> dict[str, object]:
+     chat_template_args = getattr(args, "chat_template_args", None)
+     if not isinstance(chat_template_args, dict):
+diff --git a/tests/test_sampling.py b/tests/test_sampling.py
+index 5a39f9a..336a034 100644
+--- a/tests/test_sampling.py
++++ b/tests/test_sampling.py
+@@ -40,3 +40,56 @@ def test_masked_topk_arrays_no_mask_full_width():
+     vals = top_logprobs.tolist()[0]
+     assert abs(vals[0] - (2.0 - z)) < 1e-4
+     assert abs(vals[2] - (0.5 - z)) < 1e-4
++
++
++def test_sample_tokens_without_sampler_is_greedy():
++    from dflash_mlx.engine.sampling import sample_tokens_with_mask
++
++    logits = mx.array([[0.0, 3.0, 1.0, 2.0], [5.0, 4.0, 3.0, 2.0]])
++    suppress = mx.array([False, True, False, False])
++    sampled = sample_tokens_with_mask(logits, suppress, None)
++    assert sampled.tolist() == greedy_tokens_with_mask(logits, suppress).tolist()
++
++
++def test_make_target_sampler_greedy_params_return_none():
++    from dflash_mlx.engine.sampling import SamplingParams, make_target_sampler
++
++    assert make_target_sampler(None) is None
++    assert make_target_sampler(SamplingParams(temperature=0.0, top_k=20)) is None
++    assert make_target_sampler(SamplingParams(temperature=0.6)) is not None
++
++
++def test_sample_tokens_respects_mask_and_top_k_per_row():
++    from dflash_mlx.engine.sampling import (
++        SamplingParams,
++        make_target_sampler,
++        sample_tokens_with_mask,
++    )
++
++    mx.random.seed(0)
++    logits = mx.array([[0.0, 3.0, 2.9, 2.8, -1.0]] * 64)
++    suppress = mx.array([False, True, False, False, False])
++    sampler = make_target_sampler(SamplingParams(temperature=1.0, top_k=2))
++    tokens = sample_tokens_with_mask(logits, suppress, sampler).tolist()
++    # id 1 is suppressed, top-2 of the rest is {2, 3}; both should appear.
++    assert set(tokens) == {2, 3}
++
++
++def test_sample_tokens_matches_softmax_distribution():
++    from dflash_mlx.engine.sampling import (
++        SamplingParams,
++        make_target_sampler,
++        sample_tokens_with_mask,
++    )
++
++    mx.random.seed(1)
++    temp = 0.6
++    row = [1.0, 0.5, 0.0, -0.5]
++    logits = mx.array([row] * 20000)
++    sampler = make_target_sampler(SamplingParams(temperature=temp))
++    tokens = sample_tokens_with_mask(logits, None, sampler).tolist()
++    weights = [math.exp(v / temp) for v in row]
++    total = sum(weights)
++    for token_id, weight in enumerate(weights):
++        freq = tokens.count(token_id) / len(tokens)
++        assert abs(freq - weight / total) < 0.015
+diff --git a/tests/test_serve_state_machine.py b/tests/test_serve_state_machine.py
+index 1b11cf1..e03ef1e 100644
+--- a/tests/test_serve_state_machine.py
++++ b/tests/test_serve_state_machine.py
+@@ -154,7 +154,7 @@ def test_response_generator_ar_fastpath_accounting(monkeypatch, ar_raises):
+         assert runtime_calls[1][1]["wall_ms"] >= 0.0
+ 
+ 
+-def test_response_generator_sampling_uses_exact_target_ar(monkeypatch):
++def test_response_generator_sampling_uses_exact_target_ar_when_disabled(monkeypatch):
+     runtime_calls = []
+ 
+     def fake_ar_serve(self, request_tuple):
+@@ -177,7 +177,7 @@ def test_response_generator_sampling_uses_exact_target_ar(monkeypatch):
+     )
+     generator.model_provider = SimpleNamespace(
+         draft_model="draft",
+-        cli_args=SimpleNamespace(fastpath_max_tokens=0),
++        cli_args=SimpleNamespace(fastpath_max_tokens=0, sampled_dflash=False),
+     )
+     args = SimpleNamespace(
+         max_tokens=64,
+@@ -202,6 +202,45 @@ def test_response_generator_sampling_uses_exact_target_ar(monkeypatch):
+     ]
+ 
+ 
++def test_response_generator_sampling_uses_dflash_by_default(monkeypatch):
++    def fail_ar_serve(self, request_tuple):
++        raise AssertionError("sampled request must not fall back to target-only AR")
++
++    monkeypatch.setattr(serve.mlx_server.ResponseGenerator, "_serve_single", fail_ar_serve)
++    served = []
++    generator = object.__new__(DFlashResponseGenerator)
++    generator.server_runtime = SimpleNamespace(
++        next_request_id=lambda: 13,
++        serve_dflash_request=lambda **kwargs: served.append(kwargs),
++    )
++    generator.model_provider = SimpleNamespace(
++        draft_model="draft",
++        tokenizer=object(),
++        cli_args=SimpleNamespace(fastpath_max_tokens=0),
++    )
++    monkeypatch.setattr(
++        DFlashResponseGenerator,
++        "_prepare_dflash_request",
++        lambda self, tokenizer, request, args, has_thinking: "prepared",
++    )
++    args = SimpleNamespace(
++        max_tokens=64,
++        sampling=SimpleNamespace(
++            temperature=0.6,
++            top_p=0.95,
++            top_k=20,
++            min_p=0.0,
++            xtc_probability=0.0,
++        ),
++        logits=SimpleNamespace(),
++        logprobs=False,
++        top_logprobs=-1,
++    )
++    generator._serve_single((_Queue(), object(), args))
++    assert len(served) == 1
++    assert served[0]["prepared"] == "prepared"
++
++
+ def test_response_generator_clears_failed_dflash_request_after_live_start(monkeypatch):
+     _reset_live_metrics_state()
+     monkeypatch.setattr(metrics_mod, "current_runtime_cache_manager", lambda: None)
+diff --git a/tests/test_server_sampling_params.py b/tests/test_server_sampling_params.py
+new file mode 100644
+index 0000000..d1a9e76
+--- /dev/null
++++ b/tests/test_server_sampling_params.py
+@@ -0,0 +1,21 @@
++# Copyright 2026 bstnxbt
++# Licensed under the Apache License, Version 2.0 - see LICENSE file
++
++from types import SimpleNamespace
++
++from dflash_mlx.engine.sampling import SamplingParams
++from dflash_mlx.server.runtime import _sampling_params
++
++
++def _args(**sampling):
++    return SimpleNamespace(sampling=SimpleNamespace(**sampling))
++
++
++def test_sampling_params_greedy_request_is_none():
++    assert _sampling_params(_args(temperature=0.0, top_p=0.95, top_k=20, min_p=0.0)) is None
++    assert _sampling_params(SimpleNamespace()) is None
++
++
++def test_sampling_params_maps_openai_fields():
++    params = _sampling_params(_args(temperature=0.6, top_p=0.95, top_k=20, min_p=0.0))
++    assert params == SamplingParams(temperature=0.6, top_p=0.95, top_k=20, min_p=0.0)
+-- 
+2.54.0 (Apple Git-157)
+

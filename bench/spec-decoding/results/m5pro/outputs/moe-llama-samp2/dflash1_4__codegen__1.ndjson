@@ -1,0 +1,2 @@
+{"type":"system","event_type":"conversation_started","conversation_id":""}
+{"type":"agent_reasoning","text":"The user wants me to write a Python class LRUCache with:\n1. O(1) get/put operations\n2. Using an OrderedDict-free doubly linked list plus dict\n3. Type hints\n4. Docstrings\n5. 5 pytest tests\n6. Do not run commands, read files, or use any tools - just write the code directly in my reply\n"}

@@ -1,0 +1,22 @@
+none           code   tg=  83.12 n=213 acc=- same_as_none=True
+none           code   tg=  83.77 n=213 acc=- same_as_none=True
+none           prose  tg=  83.92 n=304 acc=- same_as_none=True
+mtp 2          code   tg= 117.79 n=213 acc=140/144 same_as_none=True
+mtp 2          code   tg= 123.76 n=213 acc=140/144 same_as_none=True
+mtp 2          prose  tg=  96.71 n=304 acc=171/266 same_as_none=True
+mtp 3          code   tg= 138.49 n=213 acc=158/165 same_as_none=True
+mtp 3          code   tg= 135.02 n=213 acc=158/165 same_as_none=True
+mtp 3          prose  tg=  92.01 n=304 acc=184/357 same_as_none=True
+mtp 4          code   tg= 133.02 n=213 acc=167/180 same_as_none=True
+mtp 4          code   tg= 141.41 n=213 acc=167/180 same_as_none=True
+mtp 4          prose  tg=  84.46 n=304 acc=194/436 same_as_none=True
+dflash2 7      code   tg= 185.50 n=213 acc=184/203 same_as_none=True
+dflash2 7      code   tg= 185.98 n=213 acc=184/203 same_as_none=True
+dflash2 7      prose  tg=  73.15 n=304 acc=195/756 same_as_none=True
+dflash2 4      code   tg= 169.10 n=213 acc=168/176 same_as_none=True
+dflash2 4      code   tg= 172.37 n=213 acc=168/176 same_as_none=True
+dflash2 4      prose  tg=  99.87 n=304 acc=192/444 same_as_none=True
+dflash1 7      code   tg= 189.29 n=213 acc=184/196 same_as_none=True
+dflash1 7      code   tg= 192.85 n=213 acc=184/196 same_as_none=True
+dflash1 7      prose  tg=  66.33 n=304 acc=184/833 same_as_none=True
+## done

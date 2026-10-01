@@ -1,0 +1,4 @@
+Qwen3.6-35B-A3B-MTP-UD-Q4_K_XL.gguf: 0.57.214.373 I Final estimate: PPL = 5.5695 +/- 0.06494
+Qwen3.6-35B-A3B-MTP-MXFP4_MOE.gguf: 1.00.629.879 I Final estimate: PPL = 5.5681 +/- 0.06486
+Qwen_Qwen3.6-35B-A3B-Q4_0.gguf: 0.57.288.632 I Final estimate: PPL = 5.6283 +/- 0.06590
+## done
