@@ -27,7 +27,7 @@ use crate::terminal::event::BlockMetadataReceivedEvent;
 use crate::terminal::model::block::{
     formatted_terminal_contents_for_input, Block, BlockId, CURSOR_MARKER,
 };
-use crate::terminal::shell::ShellType;
+use crate::terminal::shell::{self, ShellType};
 use crate::terminal::ssh::util::parse_interactive_ssh_command;
 use crate::{
     ai::agent::AIAgentActionResultType,
@@ -237,7 +237,8 @@ impl ShellCommandExecutor {
     /// 但 bash/zsh 下 `$?` 会被 `cat` 的退出码(几乎总是 0)覆盖,导致 agent 看到 `cargo check`
     /// 失败时仍然得到 exit_code=0,做出错误判断。
     ///
-    /// 这里改用 `PAGER=cat GIT_PAGER=cat MANPAGER=cat` 并在子壳/script block 里执行,
+    /// 这里改用 `PAGER=cat GIT_PAGER=cat MANPAGER=cat` 并在子壳/块作用域里执行
+    /// (PowerShell 没有命令级环境变量,改为保存原值并在 finally 中恢复),
     /// 既能覆盖 git/man/bat/kubectl/psql/gh 等绝大多数 CLI 的 pager 行为,又让外层 `$?` /
     /// `$LASTEXITCODE` 取自命令本身。
     ///
@@ -266,10 +267,19 @@ impl ShellCommandExecutor {
             Some(ShellType::Fish) => format!(
                 "begin; set -e PAGER; set -e GIT_PAGER; set -e MANPAGER; set -lx PAGER cat; set -lx GIT_PAGER cat; set -lx MANPAGER cat; set -lx GIT_CONFIG_COUNT 1; set -lx GIT_CONFIG_KEY_0 core.pager; set -lx GIT_CONFIG_VALUE_0 cat; {command}; end"
             ),
-            // pwsh: script block 局部 $env: 不污染外层会话, $LASTEXITCODE 透出。
-            // Remove-Item Env: 清理继承值,再赋 cat;对不存在变量用 -ErrorAction SilentlyContinue。
-            Some(ShellType::PowerShell) => format!(
-                "& {{ Remove-Item Env:PAGER -ErrorAction SilentlyContinue; Remove-Item Env:GIT_PAGER -ErrorAction SilentlyContinue; Remove-Item Env:MANPAGER -ErrorAction SilentlyContinue; $env:PAGER='cat'; $env:GIT_PAGER='cat'; $env:MANPAGER='cat'; $env:GIT_CONFIG_COUNT='1'; $env:GIT_CONFIG_KEY_0='core.pager'; $env:GIT_CONFIG_VALUE_0='cat'; {command} }}"
+            // pwsh: $env: 是进程级的,即使在 script block 里赋值也会泄漏到用户的交互会话。
+            // 因此先保存原值,命令结束后在 finally 里恢复(原本未设置的变量则删除),
+            // 同时保留命令自身的 $? / $LASTEXITCODE。
+            Some(ShellType::PowerShell) => shell::powershell_command_with_env(
+                &[
+                    ("PAGER", "cat"),
+                    ("GIT_PAGER", "cat"),
+                    ("MANPAGER", "cat"),
+                    ("GIT_CONFIG_COUNT", "1"),
+                    ("GIT_CONFIG_KEY_0", "core.pager"),
+                    ("GIT_CONFIG_VALUE_0", "cat"),
+                ],
+                command,
             ),
             // 未知 shell 无法安全装饰,直接放过 —— 此路径下 pager 抑制完全无效,只能
             // 依靠 MAX_UNTIL_COMPLETION_DURATION 兜底超时避免永久挂起。

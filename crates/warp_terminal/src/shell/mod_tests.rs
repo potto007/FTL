@@ -270,3 +270,91 @@ fn test_should_add_command_to_history() {
         assert!(fish_shell.should_add_command_to_history(" asdf"));
     }
 }
+
+/// Runs `script` with `pwsh`, returning its stdout lines, or `None` if `pwsh` isn't installed.
+// `command::blocking::Command` spawns with `CREATE_BREAKAWAY_FROM_JOB`, which fails with "Access
+// is denied" when the test runner sits in a job that disallows breakaway.
+#[allow(clippy::disallowed_types)]
+fn run_pwsh(script: &str) -> Option<Vec<String>> {
+    let output = match std::process::Command::new("pwsh")
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .output()
+    {
+        Ok(output) => output,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!("skipping: pwsh is not installed");
+            return None;
+        }
+        Err(err) => panic!("failed to run pwsh: {err}"),
+    };
+    assert!(
+        output.status.success(),
+        "pwsh failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Some(
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(str::to_owned)
+            .collect(),
+    )
+}
+
+#[test]
+fn test_powershell_command_with_env_preserves_status_and_restores_env() {
+    let exit_with = |code: u8| {
+        if cfg!(windows) {
+            format!("cmd /c exit {code}")
+        } else {
+            format!("sh -c 'exit {code}'")
+        }
+    };
+    let vars = [
+        ("PAGER", "cat"),
+        ("GIT_PAGER", "cat"),
+        ("FTL_QUOTE_TEST", "it's"),
+    ];
+    let wrap = |command: &str| {
+        powershell_command_with_env(
+            &vars,
+            &format!("\"inner=$env:PAGER|$env:GIT_PAGER|$env:FTL_QUOTE_TEST\"; {command}"),
+        )
+    };
+    let print_env =
+        r#""outer=$env:PAGER|$($null -eq $env:GIT_PAGER)|$($null -eq $env:FTL_QUOTE_TEST)""#;
+    let script = [
+        "$env:PAGER = 'less'".to_owned(),
+        "Remove-Item Env:GIT_PAGER, Env:FTL_QUOTE_TEST -ErrorAction Ignore".to_owned(),
+        wrap(&exit_with(3)),
+        "\"status=$? code=$LASTEXITCODE\"".to_owned(),
+        print_env.to_owned(),
+        wrap(&exit_with(0)),
+        "\"status=$? code=$LASTEXITCODE\"".to_owned(),
+        print_env.to_owned(),
+        // The environment is restored even if the command throws.
+        format!(
+            "try {{ {} }} catch {{ \"caught=$_\" }}",
+            wrap("throw 'boom'")
+        ),
+        print_env.to_owned(),
+    ]
+    .join("\n");
+
+    let Some(lines) = run_pwsh(&script) else {
+        return;
+    };
+    assert_eq!(
+        lines,
+        [
+            "inner=cat|cat|it's",
+            "status=False code=3",
+            "outer=less|True|True",
+            "inner=cat|cat|it's",
+            "status=True code=0",
+            "outer=less|True|True",
+            "inner=cat|cat|it's",
+            "caught=boom",
+            "outer=less|True|True",
+        ]
+    );
+}

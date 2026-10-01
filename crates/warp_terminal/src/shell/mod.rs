@@ -891,6 +891,77 @@ impl From<ShellLaunchData> for SessionPlatform {
     }
 }
 
+/// Wraps `body` in a single-line PowerShell script block that runs `finally` afterwards (even if
+/// `body` throws or is interrupted) and leaves the caller's `$?` reflecting `body`'s last
+/// statement.
+///
+/// A plain `& { ... }` always leaves `$?` as `$true` for the caller, even when its last statement
+/// failed (e.g. a native command exiting non-zero), so the precmd hook would report the command
+/// as successful. Making the block an advanced script block lets it surface the failure through
+/// `$PSCmdlet.WriteError`, which sets the caller's `$?` to `$false`. The record is written with
+/// `ErrorAction` `Ignore`, so it is neither displayed nor added to `$Error`. `$LASTEXITCODE` is
+/// global and passes through untouched as long as `finally` doesn't run native commands.
+///
+/// The result is a single line, so `body` must not end in a `#` comment.
+pub fn powershell_script_block_preserving_status(body: &str, finally: &str) -> String {
+    format!(
+        "& {{ [CmdletBinding()] param() try {{ {body}; $__ftlStatus = $? }} finally {{ {finally} }}; \
+         if (-not $__ftlStatus) {{ $ErrorActionPreference = 'Ignore'; \
+         $PSCmdlet.WriteError([System.Management.Automation.ErrorRecord]::new(\
+         [Exception]::new('command failed'), 'FtlCommandFailed', 'NotSpecified', $null)) }} }}"
+    )
+}
+
+/// Wraps `command` so that it runs in PowerShell with the environment variables in `vars`
+/// overridden, preserving the command's `$?` and `$LASTEXITCODE`.
+///
+/// Unlike POSIX shells, PowerShell has no command-scoped environment: `$env:` assignments are
+/// process-wide even inside a script block. The previous values are therefore saved and restored
+/// afterwards, and variables that were previously unset are removed again.
+pub fn powershell_command_with_env(vars: &[(&str, &str)], command: &str) -> String {
+    let names = vars
+        .iter()
+        .map(|(name, _)| powershell_single_quote(name))
+        .join(", ");
+    let assignments = vars
+        .iter()
+        .map(|(name, value)| {
+            format!(
+                "[Environment]::SetEnvironmentVariable({}, {})",
+                powershell_single_quote(name),
+                powershell_single_quote(value)
+            )
+        })
+        .join("; ");
+    let body = format!(
+        "$__ftlSavedEnv = @{{}}; foreach ($__ftlName in @({names})) {{ \
+         $__ftlSavedEnv[$__ftlName] = [Environment]::GetEnvironmentVariable($__ftlName) }}; \
+         {assignments}; {command}"
+    );
+    // PowerShell passes `$null` to .NET string parameters as "", so previously unset variables
+    // are removed through the `Env:` provider instead of `SetEnvironmentVariable`.
+    let finally = "foreach ($__ftlEntry in $__ftlSavedEnv.GetEnumerator()) { \
+                   if ($null -eq $__ftlEntry.Value) { \
+                   Remove-Item -LiteralPath \"Env:$($__ftlEntry.Key)\" -ErrorAction Ignore } \
+                   else { [Environment]::SetEnvironmentVariable($__ftlEntry.Key, $__ftlEntry.Value) } }";
+    powershell_script_block_preserving_status(&body, finally)
+}
+
+/// Quotes `s` as a PowerShell single-quoted string literal. PowerShell also treats the Unicode
+/// single quotation marks as quote characters, so those are doubled too.
+fn powershell_single_quote(s: &str) -> String {
+    let mut quoted = String::with_capacity(s.len() + 2);
+    quoted.push('\'');
+    for c in s.chars() {
+        if matches!(c, '\'' | '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}') {
+            quoted.push(c);
+        }
+        quoted.push(c);
+    }
+    quoted.push('\'');
+    quoted
+}
+
 /// Unescape the key and value for an alias, returning None if either fails
 fn unescape_alias_key_value(key: &str, value: &str) -> Option<(SmolStr, String)> {
     let key = unescape_quotes(key)
