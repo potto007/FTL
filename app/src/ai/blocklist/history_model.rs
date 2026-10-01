@@ -131,6 +131,29 @@ pub enum UpdateHistoryError {
     ConversationNotFound(AIConversationId),
 }
 
+/// Returns the BYOP preflight persistence failure carried by `error`, whether it was raised as an
+/// [`UpdateConversationError`] or wrapped in an [`UpdateHistoryError`] (as the controller's
+/// preflight commits are).
+pub(crate) fn byop_preflight_persistence_failure(
+    error: &anyhow::Error,
+) -> Option<&UpdateConversationError> {
+    let conversation_error =
+        error
+            .downcast_ref::<UpdateConversationError>()
+            .or_else(|| match error.downcast_ref::<UpdateHistoryError>() {
+                Some(UpdateHistoryError::Conversation(conversation_error)) => {
+                    Some(conversation_error)
+                }
+                _ => None,
+            })?;
+    matches!(
+        conversation_error,
+        UpdateConversationError::ByopPreflightPersistenceUnavailable(_)
+            | UpdateConversationError::ByopPreflightPersistenceSend(_)
+    )
+    .then_some(conversation_error)
+}
+
 /// Responsible for managing the history of user and AI exchanges.
 #[derive(Default)]
 pub struct BlocklistAIHistoryModel {

@@ -159,6 +159,8 @@ Each request attempt should have a non-persistent diagnostic identifier, such as
 
 If cancellation-result persistence fails, BYOP dispatch should be blocked. Finished-result drain persistence failures should also block when those results are required for readiness. The failed result should not be reintroduced through current `RequestParams.input` to bypass persistence. After successful persistence, request construction should rebuild `RequestParams` from updated conversation state rather than patch old input in place, so the serializer does not see both current-input and persisted-history copies of the same result. The initial implementation should not proceed with only in-memory tool-result state, because retry or restart could recreate the missing-result gap.
 
+Exception: when a conversation is never persisted by design (the CLI/SDK execution mode used by `ftl agent run`, or `persist_conversations` turned off), preflight commits results to the in-memory history only. There is no restart that could recreate the gap, and blocking would stop every follow-up after a tool call. Persistence that is expected but unavailable, such as a missing or failing SQLite sender, still blocks dispatch.
+
 If tool-result persistence succeeds but later BYOP serialization or dispatch fails, do not roll back the persisted result. The result is a real conversation fact and should remain available for the next request attempt.
 
 ## Serializer Validation Flow
