@@ -254,6 +254,45 @@ pub enum ShellType {
     PowerShell,
 }
 
+/// How an immediately invoked PowerShell script block is run.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum PowerShellBlockInvocation {
+    /// `& { ... }`: runs the block in a child scope.
+    Call,
+    /// `. { ... }`: runs the block in the caller's scope.
+    DotSource,
+}
+
+/// Wraps `body` in an immediately invoked PowerShell script block whose success status (`$?`)
+/// matches the status of the last statement in `body`.
+///
+/// Invoking a plain script block (`& { cmd /c exit 3 }`) always leaves `$?` as `$true`, even though
+/// `$LASTEXITCODE` is 3. The PowerShell precmd hook in the bootstrap script reports exit code 0
+/// whenever `$?` is `$true`, so a plain wrapper hides failing native commands. Here the block is an
+/// advanced script block instead and, if its last statement failed, it writes an ignored error
+/// through its own `$PSCmdlet`. That makes `$?` `$false` for the wrapper without printing anything,
+/// adding to `$Error`, or touching `$LASTEXITCODE`, so the precmd hook reports the real exit code.
+///
+/// `$ErrorActionPreference` is set in a child scope (rather than passing `-ErrorAction Ignore` to
+/// the wrapper) so that errors written by `body` itself are still displayed, and so that a
+/// dot-sourced wrapper does not change the caller's preference.
+///
+/// The wrapper adds no line breaks: PowerShell echoes every continuation line of a multi-line
+/// input into the block's output, so a single-line `body` must stay a single line. As with any
+/// one-line wrapper, a trailing `#` comment in `body` would comment out the rest of the wrapper.
+pub fn powershell_script_block_preserving_status(
+    invocation: PowerShellBlockInvocation,
+    body: &str,
+) -> String {
+    let operator = match invocation {
+        PowerShellBlockInvocation::Call => "&",
+        PowerShellBlockInvocation::DotSource => ".",
+    };
+    format!(
+        "{operator} {{ [CmdletBinding()] param() {body}; if (-not $?) {{ & {{ $ErrorActionPreference = 'Ignore'; $PSCmdlet.WriteError([Management.Automation.ErrorRecord]::new([Exception]::new('exit status'), 'ExitStatus', 0, $null)) }} }} }}"
+    )
+}
+
 impl From<ShellType> for command_corrections::Shell {
     fn from(s: ShellType) -> command_corrections::Shell {
         match s {

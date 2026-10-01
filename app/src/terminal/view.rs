@@ -477,7 +477,7 @@ use crate::terminal::{
     // find::{Event as FindEvent, Find, FindDirection},
     input::{Event as InputEvent, Input, INPUT_A11Y_HELPER_KEY, INPUT_A11Y_LABEL_KEY},
     model::block::SerializedBlock,
-    shell::ShellType,
+    shell::{powershell_script_block_preserving_status, PowerShellBlockInvocation, ShellType},
     terminal_size_element::TerminalSizeElement,
     TerminalModel,
 };
@@ -6128,12 +6128,16 @@ impl TerminalView {
                 // appear in a separate block. However, Agent Mode assumes the command will be in a
                 // single block. This is technically an issue with other shells without bracketed
                 // paste support, e.g. Bash 3.2, so this workaround is an incomplete solution. We
-                // wrap the PowerShell snipped in an immediately invoked script block.
+                // wrap the PowerShell snipped in an immediately invoked script block, which must
+                // preserve `$?` so the block reports the command's real exit code.
                 let command = match shell_family {
                     Some(ShellFamily::PowerShell) => {
                         let command = command.trim();
                         if command.contains('\n') {
-                            format!(". {{ {command} }}")
+                            powershell_script_block_preserving_status(
+                                PowerShellBlockInvocation::DotSource,
+                                command,
+                            )
                         } else {
                             command.to_string()
                         }

@@ -27,7 +27,9 @@ use crate::terminal::event::BlockMetadataReceivedEvent;
 use crate::terminal::model::block::{
     formatted_terminal_contents_for_input, Block, BlockId, CURSOR_MARKER,
 };
-use crate::terminal::shell::ShellType;
+use crate::terminal::shell::{
+    powershell_script_block_preserving_status, PowerShellBlockInvocation, ShellType,
+};
 use crate::terminal::ssh::util::parse_interactive_ssh_command;
 use crate::{
     ai::agent::AIAgentActionResultType,
@@ -266,10 +268,14 @@ impl ShellCommandExecutor {
             Some(ShellType::Fish) => format!(
                 "begin; set -e PAGER; set -e GIT_PAGER; set -e MANPAGER; set -lx PAGER cat; set -lx GIT_PAGER cat; set -lx MANPAGER cat; set -lx GIT_CONFIG_COUNT 1; set -lx GIT_CONFIG_KEY_0 core.pager; set -lx GIT_CONFIG_VALUE_0 cat; {command}; end"
             ),
-            // pwsh: script block 局部 $env: 不污染外层会话, $LASTEXITCODE 透出。
+            // pwsh: 在 script block 里执行。普通 `& { }` 总会把 $? 置为 $true,precmd 因此把
+            // 失败的原生命令报成 exit_code=0,所以用保留 $? 的包装,$LASTEXITCODE 照常透出。
             // Remove-Item Env: 清理继承值,再赋 cat;对不存在变量用 -ErrorAction SilentlyContinue。
-            Some(ShellType::PowerShell) => format!(
-                "& {{ Remove-Item Env:PAGER -ErrorAction SilentlyContinue; Remove-Item Env:GIT_PAGER -ErrorAction SilentlyContinue; Remove-Item Env:MANPAGER -ErrorAction SilentlyContinue; $env:PAGER='cat'; $env:GIT_PAGER='cat'; $env:MANPAGER='cat'; $env:GIT_CONFIG_COUNT='1'; $env:GIT_CONFIG_KEY_0='core.pager'; $env:GIT_CONFIG_VALUE_0='cat'; {command} }}"
+            Some(ShellType::PowerShell) => powershell_script_block_preserving_status(
+                PowerShellBlockInvocation::Call,
+                &format!(
+                    "Remove-Item Env:PAGER -ErrorAction SilentlyContinue; Remove-Item Env:GIT_PAGER -ErrorAction SilentlyContinue; Remove-Item Env:MANPAGER -ErrorAction SilentlyContinue; $env:PAGER='cat'; $env:GIT_PAGER='cat'; $env:MANPAGER='cat'; $env:GIT_CONFIG_COUNT='1'; $env:GIT_CONFIG_KEY_0='core.pager'; $env:GIT_CONFIG_VALUE_0='cat'; {command}"
+                ),
             ),
             // 未知 shell 无法安全装饰,直接放过 —— 此路径下 pager 抑制完全无效,只能
             // 依靠 MAX_UNTIL_COMPLETION_DURATION 兜底超时避免永久挂起。
