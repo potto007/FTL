@@ -284,12 +284,31 @@ pub fn powershell_script_block_preserving_status(
     invocation: PowerShellBlockInvocation,
     body: &str,
 ) -> String {
+    powershell_script_block_preserving_status_with_finally(invocation, body, None)
+}
+
+/// Like [`powershell_script_block_preserving_status`], but when `finally` is given it runs after
+/// `body` even if `body` throws or is interrupted. `$?` still reflects `body`'s last statement, and
+/// `$LASTEXITCODE` passes through as long as `finally` doesn't run native commands.
+fn powershell_script_block_preserving_status_with_finally(
+    invocation: PowerShellBlockInvocation,
+    body: &str,
+    finally: Option<&str>,
+) -> String {
     let operator = match invocation {
         PowerShellBlockInvocation::Call => "&",
         PowerShellBlockInvocation::DotSource => ".",
     };
+    // `$?` after a try/finally reflects the last statement of `finally`, so record it beforehand.
+    let (body, status) = match finally {
+        None => (body.to_owned(), "$?"),
+        Some(finally) => (
+            format!("try {{ {body}; $__ftlStatus = $? }} finally {{ {finally} }}"),
+            "$__ftlStatus",
+        ),
+    };
     format!(
-        "{operator} {{ [CmdletBinding()] param() {body}; if (-not $?) {{ & {{ $ErrorActionPreference = 'Ignore'; $PSCmdlet.WriteError([Management.Automation.ErrorRecord]::new([Exception]::new('exit status'), 'ExitStatus', 0, $null)) }} }} }}"
+        "{operator} {{ [CmdletBinding()] param() {body}; if (-not {status}) {{ & {{ $ErrorActionPreference = 'Ignore'; $PSCmdlet.WriteError([Management.Automation.ErrorRecord]::new([Exception]::new('exit status'), 'ExitStatus', 0, $null)) }} }} }}"
     )
 }
 
@@ -928,6 +947,60 @@ impl From<ShellLaunchData> for SessionPlatform {
             ShellLaunchData::DockerSandbox { .. } => SessionPlatform::DockerSandbox,
         }
     }
+}
+
+/// Wraps `command` so that it runs in PowerShell with the environment variables in `vars`
+/// overridden, preserving the command's `$?` and `$LASTEXITCODE`.
+///
+/// Unlike POSIX shells, PowerShell has no command-scoped environment: `$env:` assignments are
+/// process-wide even inside a script block. The previous values are therefore saved and restored
+/// afterwards, and variables that were previously unset are removed again.
+pub fn powershell_command_with_env(vars: &[(&str, &str)], command: &str) -> String {
+    let names = vars
+        .iter()
+        .map(|(name, _)| powershell_single_quote(name))
+        .join(", ");
+    let assignments = vars
+        .iter()
+        .map(|(name, value)| {
+            format!(
+                "[Environment]::SetEnvironmentVariable({}, {})",
+                powershell_single_quote(name),
+                powershell_single_quote(value)
+            )
+        })
+        .join("; ");
+    let body = format!(
+        "$__ftlSavedEnv = @{{}}; foreach ($__ftlName in @({names})) {{ \
+         $__ftlSavedEnv[$__ftlName] = [Environment]::GetEnvironmentVariable($__ftlName) }}; \
+         {assignments}; {command}"
+    );
+    // PowerShell passes `$null` to .NET string parameters as "", so previously unset variables
+    // are removed through the `Env:` provider instead of `SetEnvironmentVariable`.
+    let finally = "foreach ($__ftlEntry in $__ftlSavedEnv.GetEnumerator()) { \
+                   if ($null -eq $__ftlEntry.Value) { \
+                   Remove-Item -LiteralPath \"Env:$($__ftlEntry.Key)\" -ErrorAction Ignore } \
+                   else { [Environment]::SetEnvironmentVariable($__ftlEntry.Key, $__ftlEntry.Value) } }";
+    powershell_script_block_preserving_status_with_finally(
+        PowerShellBlockInvocation::Call,
+        &body,
+        Some(finally),
+    )
+}
+
+/// Quotes `s` as a PowerShell single-quoted string literal. PowerShell also treats the Unicode
+/// single quotation marks as quote characters, so those are doubled too.
+fn powershell_single_quote(s: &str) -> String {
+    let mut quoted = String::with_capacity(s.len() + 2);
+    quoted.push('\'');
+    for c in s.chars() {
+        if matches!(c, '\'' | '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}') {
+            quoted.push(c);
+        }
+        quoted.push(c);
+    }
+    quoted.push('\'');
+    quoted
 }
 
 /// Unescape the key and value for an alias, returning None if either fails

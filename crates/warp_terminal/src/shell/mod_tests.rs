@@ -387,3 +387,60 @@ fn powershell_script_block_preserving_status_reports_native_failures() {
         assert_eq!(line, *expected, "for:\n{wrapped}");
     }
 }
+
+#[test]
+fn test_powershell_command_with_env_preserves_status_and_restores_env() {
+    // A native command that exits with `code` on every platform: this PowerShell itself.
+    let exit_with = |code: u8| {
+        format!("& ([System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName) -NoProfile -NonInteractive -Command 'exit {code}'")
+    };
+    let vars = [
+        ("PAGER", "cat"),
+        ("GIT_PAGER", "cat"),
+        ("FTL_QUOTE_TEST", "it's"),
+    ];
+    let wrap = |command: &str| {
+        powershell_command_with_env(
+            &vars,
+            &format!("\"inner=$env:PAGER|$env:GIT_PAGER|$env:FTL_QUOTE_TEST\"; {command}"),
+        )
+    };
+    let print_env =
+        r#""outer=$env:PAGER|$($null -eq $env:GIT_PAGER)|$($null -eq $env:FTL_QUOTE_TEST)""#;
+    let script = [
+        "$env:PAGER = 'less'".to_owned(),
+        "Remove-Item Env:GIT_PAGER, Env:FTL_QUOTE_TEST -ErrorAction Ignore".to_owned(),
+        wrap(&exit_with(3)),
+        "\"status=$? code=$LASTEXITCODE\"".to_owned(),
+        print_env.to_owned(),
+        wrap(&exit_with(0)),
+        "\"status=$? code=$LASTEXITCODE\"".to_owned(),
+        print_env.to_owned(),
+        // The environment is restored even if the command throws.
+        format!(
+            "try {{ {} }} catch {{ \"caught=$_\" }}",
+            wrap("throw 'boom'")
+        ),
+        print_env.to_owned(),
+    ]
+    .join("\n");
+
+    let Some(stdout) = run_powershell_script(&script) else {
+        eprintln!("PowerShell is not installed; skipping");
+        return;
+    };
+    assert_eq!(
+        stdout.lines().collect::<Vec<_>>(),
+        [
+            "inner=cat|cat|it's",
+            "status=False code=3",
+            "outer=less|True|True",
+            "inner=cat|cat|it's",
+            "status=True code=0",
+            "outer=less|True|True",
+            "inner=cat|cat|it's",
+            "caught=boom",
+            "outer=less|True|True",
+        ]
+    );
+}
