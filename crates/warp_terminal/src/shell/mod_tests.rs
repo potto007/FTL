@@ -270,3 +270,120 @@ fn test_should_add_command_to_history() {
         assert!(fish_shell.should_add_command_to_history(" asdf"));
     }
 }
+
+#[test]
+fn powershell_script_block_preserving_status_shape() {
+    assert_eq!(
+        powershell_script_block_preserving_status(PowerShellBlockInvocation::Call, "git log"),
+        "& { [CmdletBinding()] param() git log; if (-not $?) { & { $ErrorActionPreference = 'Ignore'; $PSCmdlet.WriteError([Management.Automation.ErrorRecord]::new([Exception]::new('exit status'), 'ExitStatus', 0, $null)) } } }"
+    );
+    // PowerShell echoes continuation lines into the block output, so the wrapper must not add any.
+    let wrapped =
+        powershell_script_block_preserving_status(PowerShellBlockInvocation::DotSource, "a\nb");
+    assert!(wrapped.starts_with(". { [CmdletBinding()] param() a\nb; "));
+    assert_eq!(wrapped.matches('\n').count(), 1);
+}
+
+/// Runs `script` in PowerShell and returns its stdout, or `None` if no PowerShell is installed.
+fn run_powershell_script(script: &str) -> Option<String> {
+    let path = std::env::temp_dir().join(format!(
+        "warp_terminal_pwsh_status_{}_{:?}.ps1",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    std::fs::write(&path, script).expect("can write temp script");
+    let candidates: &[&str] = if cfg!(windows) {
+        &["pwsh", "powershell"]
+    } else {
+        &["pwsh"]
+    };
+    let output = candidates.iter().find_map(|shell| {
+        std::process::Command::new(shell)
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+            ])
+            .arg(&path)
+            .output()
+            .ok()
+    });
+    let _ = std::fs::remove_file(&path);
+    let output = output?;
+    assert!(
+        output.status.success(),
+        "PowerShell failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Some(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"))
+}
+
+/// Regression test: the agent wraps PowerShell commands in script blocks (to unset pagers, and to
+/// keep multi-line commands in one block). Plain script blocks reset `$?` to `$true`, which made the
+/// precmd hook report exit code 0 for failing native commands.
+#[test]
+fn powershell_script_block_preserving_status_reports_native_failures() {
+    use PowerShellBlockInvocation::{Call, DotSource};
+
+    // A native command that exits with code 3 on every platform: this PowerShell itself.
+    let fail = "& ([System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName) -NoProfile -NonInteractive -Command 'exit 3'";
+    let succeed = "& ([System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName) -NoProfile -NonInteractive -Command 'exit 0'";
+    let cases = [
+        // Sanity check of the underlying PowerShell behavior this guards against.
+        (format!("& {{ {fail} }}"), "True 3 0 Continue"),
+        (
+            powershell_script_block_preserving_status(Call, fail),
+            "False 3 0 Continue",
+        ),
+        (
+            powershell_script_block_preserving_status(DotSource, fail),
+            "False 3 0 Continue",
+        ),
+        (
+            powershell_script_block_preserving_status(Call, &format!("{fail};")),
+            "False 3 0 Continue",
+        ),
+        (
+            powershell_script_block_preserving_status(Call, &format!("{succeed}\n{fail}")),
+            "False 3 0 Continue",
+        ),
+        (
+            powershell_script_block_preserving_status(Call, &format!("{fail}\n{succeed}")),
+            "True 0 0 Continue",
+        ),
+        // A failing cmdlet records its own error and leaves $LASTEXITCODE untouched.
+        (
+            powershell_script_block_preserving_status(
+                Call,
+                "Get-Item -LiteralPath ./does-not-exist 2>$null",
+            ),
+            "False 0 1 Continue",
+        ),
+        // How a multi-line agent command with the pager wrapper ends up being run.
+        (
+            powershell_script_block_preserving_status(
+                DotSource,
+                &powershell_script_block_preserving_status(Call, &format!("$x = 1\n{fail}")),
+            ),
+            "False 3 0 Continue",
+        ),
+    ];
+
+    let mut script = String::new();
+    for (wrapped, _) in &cases {
+        script.push_str(&format!(
+            "$global:LASTEXITCODE = 0; $Error.Clear()\n{wrapped}\n\"$? $global:LASTEXITCODE $($Error.Count) $ErrorActionPreference\"\n"
+        ));
+    }
+    let Some(stdout) = run_powershell_script(&script) else {
+        eprintln!("PowerShell is not installed; skipping");
+        return;
+    };
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(lines.len(), cases.len(), "unexpected output:\n{stdout}");
+    for ((wrapped, expected), line) in cases.iter().zip(lines) {
+        assert_eq!(line, *expected, "for:\n{wrapped}");
+    }
+}
