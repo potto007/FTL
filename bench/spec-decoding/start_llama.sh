@@ -19,7 +19,8 @@
 #   (7 for both DFlash2 drafters, 15 for MoE DFlash v1).
 #
 # Env overrides: MOE (1|0), MOE_QUANT, DFLASH_VER, MODEL, MTP_MODEL (empty = MTP head inside MODEL),
-#                DFLASH_MODEL, CTX (32768), PORT (8080), HOST (127.0.0.1),
+#                DFLASH_MODEL, CTX (32768), KV_TYPE (q8_0; K and V cache type, f16 = unquantized),
+#                PORT (8080), HOST (127.0.0.1),
 #                NP (1 slot), LLAMA_DIR (~/src/oss/llama.cpp),
 #                LOG (run/llama-server-<mode>.log), HEALTH_TIMEOUT seconds (300)
 #
@@ -59,6 +60,7 @@ else
     DFLASH_N_DEFAULT=7
 fi
 CTX="${CTX:-32768}"
+KV_TYPE="${KV_TYPE:-q8_0}"
 PORT="${PORT:-8080}"
 HOST="${HOST:-127.0.0.1}"
 NP="${NP:-1}"
@@ -124,6 +126,7 @@ cmd=("$SERVER"
     --host "$HOST" --port "$PORT"
     -ngl 99 -fa on
     -c "$CTX" -np "$NP"
+    -ctk "$KV_TYPE" -ctv "$KV_TYPE"
     --jinja
     --no-mmproj
     --metrics

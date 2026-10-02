@@ -141,7 +141,7 @@ The MLX models live in `~/models/mlx/`:
    RESULTS=results/m5pro/results.jsonl python3 analyze.py moe-llama-samp2 moe-mlx-samp2
    ```
 
-`start_llama.sh` and `start_mlx.sh` also work on their own; run either without arguments for usage. The env overrides for `start_llama.sh` are `LLAMA_DIR`, `MODEL`, `MTP_MODEL`, `DFLASH_MODEL`, `MOE_QUANT`, `CTX` and `PORT`.
+`start_llama.sh` and `start_mlx.sh` also work on their own; run either without arguments for usage. The env overrides for `start_llama.sh` are `LLAMA_DIR`, `MODEL`, `MTP_MODEL`, `DFLASH_MODEL`, `MOE_QUANT`, `CTX`, `KV_TYPE` and `PORT`. The KV cache is q8_0 by default (`KV_TYPE=f16` restores the setting the M5 Pro results were measured with).
 
 ## On the RTX 5090
 
